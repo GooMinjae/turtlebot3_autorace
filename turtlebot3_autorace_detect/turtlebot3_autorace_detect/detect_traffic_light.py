@@ -17,6 +17,7 @@
 # Author: Leon Jung, Gilbert, Ashe Kim, ChanHyeong Lee
 
 import time
+from std_msgs.msg import String
 
 import cv2
 from cv_bridge import CvBridge
@@ -35,6 +36,10 @@ class DetectTrafficLight(Node):
 
     def __init__(self):
         super().__init__('detect_traffic_light')
+        self.pub_traffic_light_state = self.create_publisher(String, '/traffic_light_state', 1)
+        # __init__ 내부에 추가
+        self.current_light = "NONE"
+
         parameter_descriptor_hue = ParameterDescriptor(
             integer_range=[IntegerRange(from_value=0, to_value=179, step=1)],
             description='Hue Value (0~179)'
@@ -303,11 +308,21 @@ class DetectTrafficLight(Node):
         else:
             self.pub_image_traffic_light.publish(
                 self.cvBridge.cv2_to_imgmsg(self.cv_image, 'bgr8'))
-            self.label = " "
             
-        label_msg = String()
-        label_msg.data = self.label
-        self.pub_light.publish(label_msg)
+                # 상태 판단 및 토픽 퍼블리시
+        if detect_red:
+            self.current_light = "RED"
+        elif detect_yellow:
+            self.current_light = "YELLOW"
+        elif detect_green:
+            self.current_light = "GREEN"
+        else:
+            self.current_light = "NONE"
+
+        msg = String()
+        msg.data = self.current_light
+        self.pub_traffic_light_state.publish(msg)
+
 
     def mask_red_traffic_light(self):
         image = np.copy(self.cv_image)

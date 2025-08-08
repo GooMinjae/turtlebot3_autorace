@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 # Author: Leon Jung, Gilbert, Ashe Kim, Hyungyu Kim, ChanHyeong Lee
-
+from std_msgs.msg import String
 from geometry_msgs.msg import Twist
 import rclpy
 from rclpy.node import Node
@@ -29,7 +29,13 @@ class ControlLane(Node):
 
     def __init__(self):
         super().__init__('control_lane')
-        self.label = ''
+        self.label = self.create_subscription(
+            String, 
+            '/traffic_light_state', 
+            self.callback_label, 
+            10
+        )
+        self.label = "NONE"
 
         self.msg_light = self.create_subscription(
             String,
@@ -94,6 +100,16 @@ class ControlLane(Node):
     def callback_light(self, light):
         self.label = light.data
 
+    def callback_label(self, msg):
+        self.label = msg.data
+        if self.label == "red_light":
+            self.get_logger().info("Red light detected! Stopping.")
+
+    def callback_label(self, msg):
+        self.label = msg.data
+        if self.label == "red_light":
+            self.get_logger().info("Red light detected! Stopping.")
+
     def callback_follow_lane(self, desired_center):
         """
         Receive lane center data to generate lane following control commands.
@@ -113,10 +129,17 @@ class ControlLane(Node):
         self.last_error = error
 
         twist = Twist()
-        
+        twist.linear.x = min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)
+        twist.angular.z = -max(angular_z, -2.0) if angular_z < 0 else -min(angular_z, 2.0)
+        self.pub_cmd_vel.publish(twist)
+
         # Linear velocity: adjust speed based on error (maximum 0.05 limit)
-        if "red_light" == self.label:
+        if "RED" == self.label and self.stop_line_detected:
+            twist = Twist()
             twist.linear.x = 0.0
+            twist.linear.y = 0.0
+            self.pub_cmd_vel.publish(twist)
+
         elif "yellow_ligth" == self.label:
             twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05))/2
         else:
