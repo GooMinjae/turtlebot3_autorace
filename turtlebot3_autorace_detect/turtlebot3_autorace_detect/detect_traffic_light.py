@@ -303,6 +303,8 @@ class DetectTrafficLight(Node):
         else:
             self.pub_image_traffic_light.publish(
                 self.cvBridge.cv2_to_imgmsg(self.cv_image, 'bgr8'))
+            self.label = " "
+            
         label_msg = String()
         label_msg.data = self.label
         self.pub_light.publish(label_msg)
