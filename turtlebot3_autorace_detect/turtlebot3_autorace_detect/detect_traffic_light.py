@@ -29,7 +29,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
 from sensor_msgs.msg import Image
-
+from std_msgs.msg import String
 
 class DetectTrafficLight(Node):
 
@@ -148,6 +148,8 @@ class DetectTrafficLight(Node):
             self.pub_image_traffic_light = self.create_publisher(
                 Image, '/detect/image_output', 1)
 
+
+
         if self.is_calibration_mode:
             if self.pub_image_type == 'compressed':
                 self.pub_image_red_light = self.create_publisher(
@@ -156,6 +158,7 @@ class DetectTrafficLight(Node):
                     CompressedImage, '/detect/image_output_sub2/compressed', 1)
                 self.pub_image_green_light = self.create_publisher(
                     CompressedImage, '/detect/image_output_sub3/compressed', 1)
+            
             else:
                 self.pub_image_red_light = self.create_publisher(
                     Image, '/detect/image_output_sub1', 1)
@@ -163,6 +166,8 @@ class DetectTrafficLight(Node):
                     Image, '/detect/image_output_sub2', 1)
                 self.pub_image_green_light = self.create_publisher(
                     Image, '/detect/image_output_sub3', 1)
+            self.pub_light = self.create_publisher(
+                String, '/control/label', 1)
 
         self.cvBridge = CvBridge()
         self.cv_image = None
@@ -269,6 +274,9 @@ class DetectTrafficLight(Node):
         if detect_red:
             cv2.putText(self.cv_image, 'RED', (self.point_x, self.point_y),
                         cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 0, 255))
+            self.label = "red_light"
+
+
 
         cv_image_mask_yellow = self.mask_yellow_traffic_light()
         cv_image_mask_yellow = cv2.GaussianBlur(cv_image_mask_yellow, (5, 5), 0)
@@ -276,6 +284,9 @@ class DetectTrafficLight(Node):
         if detect_yellow:
             cv2.putText(self.cv_image, 'YELLOW', (self.point_x, self.point_y),
                         cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 255, 255))
+            self.label = "yellow_light"
+            
+            
 
         cv_image_mask_green = self.mask_green_traffic_light()
         cv_image_mask_green = cv2.GaussianBlur(cv_image_mask_green, (5, 5), 0)
@@ -283,6 +294,8 @@ class DetectTrafficLight(Node):
         if detect_green:
             cv2.putText(self.cv_image, 'GREEN', (self.point_x, self.point_y),
                         cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 255, 0))
+            self.label = "green_light"
+            
 
         if self.pub_image_type == 'compressed':
             self.pub_image_traffic_light.publish(
@@ -290,6 +303,9 @@ class DetectTrafficLight(Node):
         else:
             self.pub_image_traffic_light.publish(
                 self.cvBridge.cv2_to_imgmsg(self.cv_image, 'bgr8'))
+        label_msg = String()
+        label_msg.data = self.label
+        self.pub_light.publish(label_msg)
 
     def mask_red_traffic_light(self):
         image = np.copy(self.cv_image)

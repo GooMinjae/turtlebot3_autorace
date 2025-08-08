@@ -21,13 +21,27 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Bool
 from std_msgs.msg import Float64
+from std_msgs.msg import String
+
 
 
 class ControlLane(Node):
 
     def __init__(self):
         super().__init__('control_lane')
+        self.label = ''
 
+        self.msg_light = self.create_subscription(
+            String,
+            '/control/label',
+            self.callback_light,
+            1
+        )
+        
+        # self.src_light = self.create_client(
+        #     YOLO,
+        #     '/control/label'
+        # )
         self.sub_lane = self.create_subscription(
             Float64,
             '/control/lane',
@@ -70,6 +84,16 @@ class ControlLane(Node):
     def callback_get_max_vel(self, max_vel_msg):
         self.MAX_VEL = max_vel_msg.data
 
+    def callback_stopline(self, stop_line):
+        self.labels = []
+        self.stop_line = stop_line.data
+        request = self.labels.Request()
+
+        if self.stop_line:
+            self.labels = self.src_light.call_async(request)
+    def callback_light(self, light):
+        self.label = light.data
+
     def callback_follow_lane(self, desired_center):
         """
         Receive lane center data to generate lane following control commands.
@@ -89,8 +113,14 @@ class ControlLane(Node):
         self.last_error = error
 
         twist = Twist()
+        
         # Linear velocity: adjust speed based on error (maximum 0.05 limit)
-        twist.linear.x = min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)
+        if "red_light" == self.label:
+            twist.linear.x = 0.0
+        elif "yellow_ligth" == self.label:
+            twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05))/2
+        else:
+            twist.linear.x = min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)
         twist.angular.z = -max(angular_z, -2.0) if angular_z < 0 else -min(angular_z, 2.0)
         self.pub_cmd_vel.publish(twist)
 
