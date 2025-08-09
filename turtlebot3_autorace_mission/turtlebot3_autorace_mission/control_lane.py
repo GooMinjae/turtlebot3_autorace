@@ -15,13 +15,13 @@
 # limitations under the License.
 #
 # Author: Leon Jung, Gilbert, Ashe Kim, Hyungyu Kim, ChanHyeong Lee
-from std_msgs.msg import String
+# from std_msgs.msg import String
 from geometry_msgs.msg import Twist
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Bool
 from std_msgs.msg import Float64
-from std_msgs.msg import String
+from std_msgs.msg import String, UInt8
 
 
 
@@ -87,6 +87,42 @@ class ControlLane(Node):
         self.avoid_active = False
         self.avoid_twist = Twist()
 
+        self.lane_state = 0
+
+        self.sub_lane_state = self.create_subscription(
+            UInt8,
+            '/detect/lane_state',
+            self.callback_lane_state,
+            1
+        )
+
+        self.changing_lane = False
+        self.lane_change_start_time = 0
+        self.lane_change_duration = 12.
+        self.bias = 0
+        self.last_error = 0
+        self.dashed_detected = False
+        self.prev_center = 500
+
+        self.sub_dashed = self.create_subscription(
+            Bool,
+            '/detect/dashed_line',
+            self.callback_dashed_line,
+            1
+        )
+
+    def callback_dashed_line(self, msg):
+        if msg.data and not self.changing_lane:
+            self.get_logger().info("🔄 점선 감지됨! 차선 변경 시작")
+            self.changing_lane = True
+            self.lane_change_start_time = self.get_clock().now().nanoseconds / 1e9
+            self.lane_change_duration = 12.
+            self.bias = -150  # ✅ 추가
+
+
+    def callback_lane_state(self, msg):
+        self.lane_state = msg.data
+
     def callback_get_max_vel(self, max_vel_msg):
         self.MAX_VEL = max_vel_msg.data
 
@@ -120,6 +156,46 @@ class ControlLane(Node):
             return
 
         center = desired_center.data
+
+        now = self.get_clock().now().nanoseconds / 1e9
+
+        # === 차선 변경 중일 경우: 일정 시간동안 bias 유지 ===
+        if self.changing_lane:
+            if now - self.lane_change_start_time >= self.lane_change_duration:
+                self.changing_lane = False
+                self.bias = 0
+                self.get_logger().info("✅ 차선 변경 완료 (자동 복귀)")
+        else:
+            if self.dashed_detected:
+                self.get_logger().info("점선 감지 → 차선 변경 시작")
+                self.changing_lane = True
+                self.lane_change_start_time = now
+                self.lane_change_duration = 12.  # 몇 초 동안 유지할지 조정
+                self.bias = -150  # 왼쪽으로 중심점 이동
+                self.dashed_detected = False
+
+
+        # === 중심값 결정 ===
+        if self.lane_state == 0 and self.changing_lane:
+            # 이전 중심값 사용
+            # center = self.prev_center + self.bias
+            twist = Twist()
+            twist.linear.x = 0.05
+            twist.angular.z = 0.
+            self.pub_cmd_vel.publish(twist)
+            self.get_logger().warn("🚨 lane_state == 0: 직진")
+            return
+        # else:
+        #     center = desired_center.data + self.bias
+        #     self.prev_center = desired_center.data  # 최신 값 저장
+
+        if self.lane_state == 1:
+            self.bias = 0
+
+        # === 일반 중심선 추종 ===
+        self.get_logger().info(f"{self.bias}")
+
+        center = desired_center.data + self.bias
         error = center - 500
 
         Kp = 0.0025

@@ -54,4 +54,6 @@
 python/build/
 python/dist/
 python/src/dynamixel_sdk.egg-info/
-__pycache__/*
+__pycache__/*.pyc
+*.pyc
+/turtlebot3_autorace_camera/turtlebot3_autorace_camera/__pycache__/*
