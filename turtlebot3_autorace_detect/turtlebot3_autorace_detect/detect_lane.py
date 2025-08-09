@@ -152,8 +152,7 @@ class DetectLane(Node):
                     )
 
         self.pub_lane = self.create_publisher(Float64, '/detect/lane', 1)
-        self.pub_light = self.create_publisher(String, '/detect/label', 1)
-        self.sub_light = self.create_subscription(String,'/detect/light',self.label,1)
+
 
         self.pub_yellow_line_reliability = self.create_publisher(
             UInt8, '/detect/yellow_line_reliability', 1
@@ -177,8 +176,6 @@ class DetectLane(Node):
 
         self.mov_avg_left = np.empty((0, 3))
         self.mov_avg_right = np.empty((0, 3))
-    def label(self,light):
-        self.pub_light.publish(light)
 
 
     def cbGetDetectLaneParam(self, parameters):
