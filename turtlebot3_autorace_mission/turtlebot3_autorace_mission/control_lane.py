@@ -37,12 +37,20 @@ class ControlLane(Node):
         )
         self.label = "NONE"
 
-        self.msg_light = self.create_subscription(
+        self.sub_human = self.create_subscription(
             String,
-            '/control/label',
-            self.callback_light,
+            '/control/human',
+            self.callback_human,
             1
         )
+        self.human = "NONE"
+        # self.msg_light = self.create_subscription(
+        #     String,
+        #     '/control/label',
+        #     self.callback_light,
+        #     1
+        # )
+        self.stop_line_detected = False
         
         # self.src_light = self.create_client(
         #     YOLO,
@@ -126,20 +134,16 @@ class ControlLane(Node):
     def callback_get_max_vel(self, max_vel_msg):
         self.MAX_VEL = max_vel_msg.data
 
-    def callback_stopline(self, stop_line):
-        self.labels = []
-        self.stop_line = stop_line.data
-        request = self.labels.Request()
+    # def callback_light(self, light):
+    #     self.label = light.data
 
-        if self.stop_line:
-            self.labels = self.src_light.call_async(request)
-    def callback_light(self, light):
-        self.label = light.data
+    def callback_human(self, human):
+        self.human = human.data
+        if self.human == "Stop":
+            self.get_logger().info("Human detected! Stop.")
+        elif self.human == "Slow":
+            self.get_logger().info("Human detected! Slow.")
 
-    def callback_label(self, msg):
-        self.label = msg.data
-        if self.label == "red_light":
-            self.get_logger().info("Red light detected! Stopping.")
 
     def callback_label(self, msg):
         self.label = msg.data
@@ -205,18 +209,15 @@ class ControlLane(Node):
         self.last_error = error
 
         twist = Twist()
-        twist.linear.x = min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)
-        twist.angular.z = -max(angular_z, -2.0) if angular_z < 0 else -min(angular_z, 2.0)
-        self.pub_cmd_vel.publish(twist)
+
 
         # Linear velocity: adjust speed based on error (maximum 0.05 limit)
-        if "RED" == self.label and self.stop_line_detected:
+        if ("RED" == self.label and self.stop_line_detected) or "Stop" == self.human:
             twist = Twist()
             twist.linear.x = 0.0
             twist.linear.y = 0.0
             self.pub_cmd_vel.publish(twist)
-
-        elif "yellow_ligth" == self.label:
+        elif "yellow_ligth" == self.label or "Slow" == self.human:
             twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05))/2
         else:
             twist.linear.x = min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)

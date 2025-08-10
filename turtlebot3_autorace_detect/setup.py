@@ -48,6 +48,8 @@ setup(
             'detect_traffic_light = turtlebot3_autorace_detect.detect_traffic_light:main',
             'detect_tunnel_sign = turtlebot3_autorace_detect.detect_tunnel_sign:main',
             'yolo_sign = turtlebot3_autorace_detect.yolo_sign:main',
+            'person_detector = turtlebot3_autorace_detect.person_detector:main',
+
 
         ],
     },

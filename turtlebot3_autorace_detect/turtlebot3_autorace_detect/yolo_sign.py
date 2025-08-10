@@ -17,7 +17,7 @@ class YOLONode(Node):
         self.sub_image_type = 'raw'         # you can choose image type 'compressed', 'raw'
         self.counter = 1
 
-        self.model = YOLO('/home/rokey/Desktop/runs/detect/train3/weights/best.pt')
+        self.model = YOLO('/home/rokey/Desktop/runs/detect/train2/weights/best.pt')
         self.model.eval()  # YOLOv11 모델 불러오기
         if self.sub_image_type == 'compressed':
             self.sub_image_original = self.create_subscription(
