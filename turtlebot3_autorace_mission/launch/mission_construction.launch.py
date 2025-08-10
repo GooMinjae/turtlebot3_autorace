@@ -44,7 +44,7 @@ def generate_launch_description():
         name='detect_lane',
         output='screen',
         parameters=[
-            {'is_detection_calibration_mode': False},
+            {'is_detection_calibration_mode': True},
             detect_param
         ],
         remappings=[

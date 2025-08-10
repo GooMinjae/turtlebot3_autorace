@@ -108,7 +108,6 @@ class ControlLane(Node):
         self.bias = 0
         self.last_error = 0
         self.dashed_detected = False
-        self.prev_center = 500
 
         self.sub_dashed = self.create_subscription(
             Bool,
@@ -121,7 +120,8 @@ class ControlLane(Node):
         if msg.data and not self.changing_lane:
             self.get_logger().info("🔄 점선 감지됨! 차선 변경 시작")
             self.changing_lane = True
-            self.bias = -150
+            self.dashed_detected = True
+            # self.bias = -150
 
 
     def callback_lane_state(self, msg):
@@ -151,23 +151,32 @@ class ControlLane(Node):
         Receive lane center data to generate lane following control commands.
 
         If avoidance mode is enabled, lane following control is ignored.
+
         """
-        if self.avoid_active:
-            return
+        # ▶ 우선 조건: 양쪽 차선이면 정지
+        # if self.lane_state == 2:
+        #     twist = Twist()
+        #     twist.linear.x = 0.0
+        #     twist.angular.z = 0.0
+        #     self.pub_cmd_vel.publish(twist)
+        #     self.get_logger().warn("lane_state == 2 (both lanes): STOP.")
+        #     return
+        # if self.avoid_active:
+        #     return
 
         center = desired_center.data
 
         # === 차선 변경 중일 경우: 일정 시간동안 bias 유지 ===
-        if self.dashed_detected:
+        # if self.dashed_detected:
+        if self.dashed_detected and self.avoid_active:
             self.get_logger().info("점선 감지 → 차선 변경 시작")
+            self.bias = -150
             self.changing_lane = True
             self.dashed_detected = False
 
 
         # === 중심값 결정 ===
         if self.lane_state == 0 and self.changing_lane:
-            # 이전 중심값 사용
-            # center = self.prev_center + self.bias
             twist = Twist()
             twist.linear.x = 0.05
             twist.angular.z = 0.
@@ -179,6 +188,8 @@ class ControlLane(Node):
             self.get_logger().info("lane_state == 1: 차선 변경 완료")
             self.changing_lane = False
             self.bias = 0
+
+        self.get_logger().info(f"{self.bias}")
 
         center = desired_center.data + self.bias
         error = center - 500

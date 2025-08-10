@@ -88,6 +88,12 @@ class AvoidConstruction(Node):
             10
         )
 
+        # dashed-line flag
+        self.dashed_line = False
+        self.dashed_sub = self.create_subscription(
+            Bool, '/detect/dashed_line', self.dashed_callback, 10
+        )
+
         # Publish
         self.image_pub = self.create_publisher(
             Image,
@@ -109,7 +115,7 @@ class AvoidConstruction(Node):
         self.lane_detected = False
 
         # Parameter settings
-        self.danger_distance = 0.24    # Danger zone y threshold (meters)
+        self.danger_distance = 0.5    # Danger zone y threshold (meters)
         self.danger_width = 0.12       # Danger zone x width (meters)
         self.speed = 0.03              # Forward speed during avoidance
 
@@ -137,6 +143,9 @@ class AvoidConstruction(Node):
         self.lidar_points = None
 
         self.timer = self.create_timer(0.1, self.process_loop)
+
+    def dashed_callback(self, msg: Bool):
+        self.dashed_line = bool(msg.data)
 
     def lidar_callback(self, msg):
         self.lidar_points = self.convert_laserscan_to_points(msg)
@@ -246,33 +255,38 @@ class AvoidConstruction(Node):
                 if 0 < y < self.danger_distance and abs(x) < (self.danger_width / 2):
                     danger_detected = True
                     break
-            if danger_detected:
+            # if danger_detected:
+            if danger_detected and self.dashed_line:
                 self.get_logger().info('Danger zone intrusion detected.')
                 if self.lane_state in [1, 3]:
                     self.original_theta = self.current_theta
                     if self.lane_state == 1:
                         self.turn_direction = 'right'
                         self.desired_theta = self.normalize_angle(
-                            self.current_theta - math.radians(80)
+                            self.current_theta - math.radians(35)
                         )
                     elif self.lane_state == 3:
                         self.turn_direction = 'left'
                         self.desired_theta = self.normalize_angle(
-                            self.current_theta + math.radians(80)
+                            self.current_theta + math.radians(35)
                         )
                     self.get_logger().info(f'Avoidance mode on: turning {self.turn_direction}.')
                     self.state = 'AVOID_TURN'
                 else:
                     self.get_logger().info('lane_state value does not meet activation conditions.')
+            elif danger_detected and not self.dashed_line:
+                # 점선이 아니면 회피 안 함
+                self.get_logger().info('Danger detected but NO dashed line: hold.')
+                ## STOP
 
     def process_avoid_turn_state(self):
         error = self.normalize_angle(self.desired_theta - self.current_theta)
         angular_z = self.turn_Kp * error + self.turn_Kd * (error - self.last_turn_error)
-        self.last_turn_error = error
-        twist = Twist()
-        twist.linear.x = 0.0
-        twist.angular.z = angular_z
-        self.avoid_cmd_pub.publish(twist)
+        # self.last_turn_error = error
+        # twist = Twist()
+        # twist.linear.x = 0.0
+        # twist.angular.z = angular_z
+        # self.avoid_cmd_pub.publish(twist)
         self.publish_active(True)
         if abs(error) < self.turn_threshold:
             self.get_logger().info('Avoidance turn completed. Moving straight.')
@@ -280,10 +294,10 @@ class AvoidConstruction(Node):
             self.state = 'AVOID_STRAIGHT'
 
     def process_avoid_straight_state(self):
-        twist = Twist()
-        twist.linear.x = self.speed
-        twist.angular.z = 0.0
-        self.avoid_cmd_pub.publish(twist)
+        # twist = Twist()
+        # twist.linear.x = self.speed
+        # twist.angular.z = 0.0
+        # self.avoid_cmd_pub.publish(twist)
         self.publish_active(True)
         if self.lane_detected:
             self.get_logger().info('Lane detected. Starting return turn.')
@@ -295,17 +309,17 @@ class AvoidConstruction(Node):
         error = self.normalize_angle(self.desired_theta - self.current_theta)
         angular_z = self.turn_Kp * error + self.turn_Kd * (error - self.last_turn_error)
         self.last_turn_error = error
-        twist = Twist()
-        twist.linear.x = 0.0
-        twist.angular.z = angular_z
-        self.avoid_cmd_pub.publish(twist)
+        # twist = Twist()
+        # twist.linear.x = 0.0
+        # twist.angular.z = angular_z
+        # self.avoid_cmd_pub.publish(twist)
         self.publish_active(True)
         if abs(error) < self.turn_threshold:
             self.get_logger().info('Return turn completed. Switching to normal driving.')
             self.state = 'NORMAL'
             self.publish_active(False)
-            twist = Twist()
-            self.avoid_cmd_pub.publish(twist)
+            # twist = Twist()
+            # self.avoid_cmd_pub.publish(twist)
 
     def publish_active(self, active: bool):
         bool_msg = Bool()
