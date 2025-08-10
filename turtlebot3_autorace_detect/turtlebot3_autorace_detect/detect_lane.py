@@ -13,7 +13,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
+#sss
 # Authors:
 #   - Leon Jung, Gilbert, Ashe Kim, Hyungyu Kim, ChanHyeong Lee
 #   - Special Thanks : Roger Sacchelli
@@ -28,12 +28,10 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
 from sensor_msgs.msg import Image
-from std_msgs.msg import Float64, Bool
+from std_msgs.msg import Float64
 from std_msgs.msg import UInt8
 from std_msgs.msg import String
 
-
-BASE_FRACTION = 3000
 
 class DetectLane(Node):
 
@@ -136,7 +134,6 @@ class DetectLane(Node):
             self.pub_image_lane = self.create_publisher(
                 Image, '/detect/image_output', 1
                 )
-        self.pub_dashed = self.create_publisher(Bool, '/detect/dashed_line', 1)
 
         if self.is_calibration_mode:
             if self.pub_image_type == 'compressed':
@@ -180,13 +177,6 @@ class DetectLane(Node):
         self.mov_avg_left = np.empty((0, 3))
         self.mov_avg_right = np.empty((0, 3))
 
-        self.dashed_counter = {"LEFT": 0, "RIGHT": 0}
-        self.dashed_window = 5  # 최대 카운트 누적 윈도우
-        self.dashed_threshold = 1  # 임계값: 이 값 이상이면 점선으로 판단
-
-        self.detect_dot_flag = False
-
-        self.pre_centerx = 500
 
     def cbGetDetectLaneParam(self, parameters):
         for param in parameters:
@@ -239,39 +229,25 @@ class DetectLane(Node):
         yellow_fraction, cv_yellow_lane = self.maskYellowLane(cv_image)
 
         try:
-            if not self.detect_dot_flag:
-                is_dashed = self.is_dashed_line(cv_white_lane, min_len=2, max_len=100, min_segments=2, std_threshold=25, visualize=False)
-                self.get_logger().warn(f"점선 인식 결과: {is_dashed}")
-                if is_dashed:
-                    self.detect_dot_flag = True
-                    self.prefer_left_lane = True  # ✅ 점선 감지 시 왼쪽 차선 기준 사용
-                    self.yellow_line_miss_count = 0
-                msg = Bool()
-                msg.data = is_dashed
-                self.pub_dashed.publish(msg)
-
-        except Exception as e:
-            self.get_logger().error(f"점선 인식 중 오류: {e}")
-        try:
-            if yellow_fraction > BASE_FRACTION:
+            if yellow_fraction > 3000:
                 self.left_fitx, self.left_fit = self.fit_from_lines(
                     self.left_fit, cv_yellow_lane)
                 self.mov_avg_left = np.append(
                     self.mov_avg_left, np.array([self.left_fit]), axis=0
                     )
 
-            if white_fraction > BASE_FRACTION:
+            if white_fraction > 3000:
                 self.right_fitx, self.right_fit = self.fit_from_lines(
                     self.right_fit, cv_white_lane)
                 self.mov_avg_right = np.append(
                     self.mov_avg_right, np.array([self.right_fit]), axis=0
                     )
         except Exception:
-            if yellow_fraction > BASE_FRACTION:
+            if yellow_fraction > 3000:
                 self.left_fitx, self.left_fit = self.sliding_windown(cv_yellow_lane, 'left')
                 self.mov_avg_left = np.array([self.left_fit])
 
-            if white_fraction > BASE_FRACTION:
+            if white_fraction > 3000:
                 self.right_fitx, self.right_fit = self.sliding_windown(cv_white_lane, 'right')
                 self.mov_avg_right = np.array([self.right_fit])
 
@@ -370,7 +346,7 @@ class DetectLane(Node):
 
         fraction_num = np.count_nonzero(mask)
 
-        if not self.is_calibration_mode:
+        if self.is_calibration_mode:
             if fraction_num > 35000:
                 if self.lightness_yellow_l < 250:
                     self.lightness_yellow_l += 20
@@ -497,84 +473,6 @@ class DetectLane(Node):
 
         return lane_fitx, lane_fit
 
-
-    def is_dashed_line(self, mask, min_len=5, max_len=80, min_segments=3, std_threshold=15, visualize=False):
-        """
-        좌/우 차선 영역을 확인하여 점선(2차선)이 존재하는지 판단합니다.
-
-        Returns:
-            bool: 좌/우 중 한 쪽이라도 점선이면 True
-        """
-        if mask is None or not isinstance(mask, np.ndarray) or len(mask.shape) != 2:
-            self.get_logger().error("Invalid mask input for dashed line detection.")
-            return False
-
-        height, width = mask.shape
-
-        # 좌/우 ROI 설정
-        roi_left = mask[int(height * 0.4):int(height * 0.95), int(width * 0.1):int(width * 0.45)]
-        roi_right = mask[int(height * 0.4):int(height * 0.95), int(width * 0.55):int(width * 0.9)]
-
-        left_result = self._check_dashed_roi(roi_left, min_len, max_len, min_segments, std_threshold, visualize, "LEFT")
-        right_result = self._check_dashed_roi(roi_right, min_len, max_len, min_segments, std_threshold, visualize, "RIGHT")
-
-        result = left_result or right_result
-        self.get_logger().warn(f"점선 인식 결과: {result}")
-        return result
-
-
-    def _check_dashed_roi(self, roi, min_len, max_len, min_segments, std_threshold, visualize, label="ROI"):
-        """
-        특정 ROI에서 점선을 판단하고, 일정 횟수 이상일 때만 True 반환.
-        """
-        contours, _ = cv2.findContours(roi, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        dashed_bounding_boxes = []
-        y_positions = []
-
-        for cnt in contours:
-            x, y, w, h = cv2.boundingRect(cnt)
-            length = max(w, h)
-            if min_len < length < max_len:
-                dashed_bounding_boxes.append((x, y, w, h))
-                y_positions.append(y)
-
-        if visualize:
-            debug_img = cv2.cvtColor(roi.copy(), cv2.COLOR_GRAY2BGR)
-            for x, y, w, h in dashed_bounding_boxes:
-                cv2.rectangle(debug_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.imshow(f"Dashed Contours Debug - {label}", debug_img)
-            cv2.waitKey(1)
-
-        # === 판단 기준 ===
-        is_dashed_now = False
-
-        if len(y_positions) >= min_segments:
-            y_positions.sort()
-            y_gaps = np.diff(y_positions)
-            std_gap = np.std(y_gaps) if len(y_gaps) > 0 else 0
-            self.get_logger().info(f"[{label}] 점선 조각: {len(y_positions)}, 간격 std: {std_gap:.2f}")
-
-            if std_gap < std_threshold:
-                is_dashed_now = True
-        else:
-            self.get_logger().warn(f"[{label}] 점선 조각 부족: {len(y_positions)}개")
-
-        # === 카운터 누적 ===
-        if is_dashed_now:
-            self.dashed_counter[label] += 1
-        else:
-            self.dashed_counter[label] = max(0, self.dashed_counter[label] - 1)
-
-        self.dashed_counter[label] = min(self.dashed_counter[label], self.dashed_window)
-
-        if self.dashed_counter[label] >= self.dashed_threshold:
-            self.get_logger().info(f"[{label}] 누적 카운트 충족: {self.dashed_counter[label]}")
-            return True
-        else:
-            return False
-
-
     def make_lane(self, cv_image, white_fraction, yellow_fraction):
         # Create an image to draw the lines on
         warp_zero = np.zeros((cv_image.shape[0], cv_image.shape[1], 1), dtype=np.uint8)
@@ -587,12 +485,7 @@ class DetectLane(Node):
         # both lane -> 2, left lane -> 1, right lane -> 3, none -> 0
         lane_state = UInt8()
 
-        self.get_logger().info(f"yellow: {yellow_fraction}, white: {white_fraction}")
-        self.get_logger().info(
-    f"yellow_rel={self.reliability_yellow_line}, white_rel={self.reliability_white_line}"
-)
-
-        if yellow_fraction > BASE_FRACTION:
+        if yellow_fraction > 3000:
             pts_left = np.array([np.flipud(np.transpose(np.vstack([self.left_fitx, ploty])))])
             cv2.polylines(
                 color_warp_lines,
@@ -602,7 +495,7 @@ class DetectLane(Node):
                 thickness=25
                 )
 
-        if white_fraction > BASE_FRACTION:
+        if white_fraction > 3000:
             pts_right = np.array([np.transpose(np.vstack([self.right_fitx, ploty]))])
             cv2.polylines(
                 color_warp_lines,
@@ -614,10 +507,8 @@ class DetectLane(Node):
 
         self.is_center_x_exist = True
 
-        LANE_WIDTH = 280
-
         if self.reliability_white_line > 50 and self.reliability_yellow_line > 50:
-            if white_fraction > BASE_FRACTION and yellow_fraction > BASE_FRACTION:
+            if white_fraction > 3000 and yellow_fraction > 3000:
                 centerx = np.mean([self.left_fitx, self.right_fitx], axis=0)
                 pts = np.hstack((pts_left, pts_right))
                 pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
@@ -635,12 +526,8 @@ class DetectLane(Node):
                 # Draw the lane onto the warped blank image
                 cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
 
-            if white_fraction > BASE_FRACTION and yellow_fraction <= BASE_FRACTION:
+            if white_fraction > 3000 and yellow_fraction <= 3000:
                 centerx = np.subtract(self.right_fitx, 280)
-                # if getattr(self, "prefer_left_lane", False):  # ← 왼쪽 변경 중이면
-                #     centerx = np.subtract(self.right_fitx, LANE_WIDTH * 2 // 2)  # 왼쪽 차선 추정 쪽으로 더 왼쪽
-                # else:
-                #     centerx = np.subtract(self.right_fitx, LANE_WIDTH)           # 기존 로직(오른쪽 차선 중심)
                 pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
 
                 lane_state.data = 3
@@ -653,12 +540,8 @@ class DetectLane(Node):
                     thickness=12
                     )
 
-            if white_fraction <= BASE_FRACTION and yellow_fraction > BASE_FRACTION:
+            if white_fraction <= 3000 and yellow_fraction > 3000:
                 centerx = np.add(self.left_fitx, 280)
-                # if getattr(self, "prefer_left_lane", False):  # ← 왼쪽 변경 중이면
-                #     centerx = np.subtract(self.left_fitx, LANE_WIDTH)            # 노란선의 왼쪽(=왼쪽 차선 중심)
-                # else:
-                #     centerx = np.add(self.left_fitx, LANE_WIDTH)                 # 기존 로직(오른쪽 차선 중심)
                 pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
 
                 lane_state.data = 1
@@ -673,10 +556,6 @@ class DetectLane(Node):
 
         elif self.reliability_white_line <= 50 and self.reliability_yellow_line > 50:
             centerx = np.add(self.left_fitx, 280)
-            # if getattr(self, "prefer_left_lane", False):  # ← 왼쪽 변경 중이면
-            #     centerx = np.subtract(self.left_fitx, LANE_WIDTH)            # 노란선의 왼쪽(=왼쪽 차선 중심)
-            # else:
-            #     centerx = np.add(self.left_fitx, LANE_WIDTH)                 # 기존 로직(오른쪽 차선 중심)
             pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
 
             lane_state.data = 1
@@ -691,10 +570,6 @@ class DetectLane(Node):
 
         elif self.reliability_white_line > 50 and self.reliability_yellow_line <= 50:
             centerx = np.subtract(self.right_fitx, 280)
-            # if getattr(self, "prefer_left_lane", False):  # ← 왼쪽 변경 중이면
-            #     centerx = np.subtract(self.right_fitx, LANE_WIDTH * 2 // 2)  # 왼쪽 차선 추정 쪽으로 더 왼쪽
-            # else:
-            #     centerx = np.subtract(self.right_fitx, LANE_WIDTH)           # 기존 로직(오른쪽 차선 중심)
             pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
 
             lane_state.data = 3
@@ -709,7 +584,6 @@ class DetectLane(Node):
 
         else:
             self.is_center_x_exist = False
-            # self.is_center_x_exist = True
 
             lane_state.data = 0
 
@@ -728,13 +602,6 @@ class DetectLane(Node):
                 msg_desired_center = Float64()
                 msg_desired_center.data = centerx.item(350)
                 self.pub_lane.publish(msg_desired_center)
-                self.pre_centerx = msg_desired_center.data
-
-            else:
-                msg_desired_center = Float64()
-                msg_desired_center.data = self.pre_centerx
-                self.pub_lane.publish(msg_desired_center)
-
 
             self.pub_image_lane.publish(self.cvBridge.cv2_to_compressed_imgmsg(final, 'jpg'))
 
@@ -743,12 +610,6 @@ class DetectLane(Node):
                 # publishes lane center
                 msg_desired_center = Float64()
                 msg_desired_center.data = centerx.item(350)
-                self.pub_lane.publish(msg_desired_center)
-                self.pre_centerx = msg_desired_center.data
-
-            else:
-                msg_desired_center = Float64()
-                msg_desired_center.data = self.pre_centerx
                 self.pub_lane.publish(msg_desired_center)
 
             self.pub_image_lane.publish(self.cvBridge.cv2_to_imgmsg(final, 'bgr8'))
