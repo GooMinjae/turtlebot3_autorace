@@ -24,11 +24,13 @@ from std_msgs.msg import Float64
 from std_msgs.msg import String, UInt8
 
 
-
 class ControlLane(Node):
 
     def __init__(self):
         super().__init__('control_lane')
+
+        self.is_stopped = False
+
         self.label = self.create_subscription(
             String, 
             '/traffic_light_state', 
@@ -45,13 +47,16 @@ class ControlLane(Node):
         )
         self.human = "NONE"
 
-        self.stop_line_detected = self.create_subscription(
-             Bool,
-             '/detect/stop_line',
-             self.callback_stop_line,
-             1
+        # 상태 변수
+        self.stop_line_state = False
+
+        # Subscriber 객체 (이건 변수명 다른 걸로)
+        self.sub_stop_line = self.create_subscription(
+            Bool,
+            '/detect/stop_line',
+            self.callback_stop_line,
+            1
         )
-        self.stop_line_detected = False
         
         # self.src_light = self.create_client(
         #     YOLO,
@@ -145,6 +150,21 @@ class ControlLane(Node):
         # self.get_logger().info(f'[person_detected] {self.person_detected}')
     # -----------------------------ㅊ--------------------------------------------
 
+    def _safe_publish(self, twist: Twist):
+        # 멈춤 상태면 무조건 0으로 오버라이드
+        if self.is_stopped:
+            zero = Twist()
+            self.pub_cmd_vel.publish(zero)
+            return
+        self.pub_cmd_vel.publish(twist)
+
+    def callback_avoid_cmd(self, twist_msg):
+        self.avoid_twist = twist_msg
+        if self.is_stopped:
+            return  # 멈춤 유지
+        if self.avoid_active:
+            self._safe_publish(self.avoid_twist)
+
     def callback_dashed_line(self, msg):
         if msg.data and not self.changing_lane:
             self.get_logger().info("🔄 점선 감지됨! 차선 변경 시작")
@@ -162,9 +182,12 @@ class ControlLane(Node):
     # def callback_light(self, light):
     #     self.label = light.data
     def callback_stop_line(self, msg):
-        self.stop_line_detected = msg.data
-        if self.stop_line_detected:
+        self.stop_line_state = msg.data
+        if self.stop_line_state:
             self.get_logger().info("Stop line detected! Stopping.")
+        
+
+
 
     def callback_human(self, human):
         self.human = human.data
@@ -177,7 +200,7 @@ class ControlLane(Node):
 
     def callback_label(self, msg):
         self.label = msg.data
-        if self.label == "red_light":
+        if self.label == "RED":
             self.get_logger().info("Red light detected! Stopping.")
 
     def callback_follow_lane(self, desired_center):
@@ -227,15 +250,15 @@ class ControlLane(Node):
             twist.linear.x = 0.05
             twist.angular.z = 0.
             self.pub_cmd_vel.publish(twist)
-            self.get_logger().warn("lane_state == 0: 직진")
+            # self.get_logger().warn("lane_state == 0: 직진")
             return
 
         if self.lane_state == 1 and self.changing_lane:
-            self.get_logger().info("lane_state == 1: 차선 변경 완료")
+            # self.get_logger().info("lane_state == 1: 차선 변경 완료")
             self.changing_lane = False
             self.bias = 0
 
-        self.get_logger().info(f"{self.bias}")
+        # self.get_logger().info(f"{self.bias}")
 
         center = desired_center.data + self.bias
         error = center - 500
@@ -249,12 +272,28 @@ class ControlLane(Node):
         twist = Twist()
 
 
-        # Linear velocity: adjust speed based on error (maximum 0.05 limit)
-        if ("RED" == self.label and self.stop_line_detected) or "Stop" == self.human:
+        # callback_follow_lane 안
+        # 🟢 GREEN → 정지 상태 해제
+        if self.label == "GREEN":
+            if self.is_stopped:
+                self.get_logger().info("🟢 GREEN detected → 주행 재개")
+            self.is_stopped = False
+
+        # 🔴 RED + 정지선 감지 또는 사람 Stop → 정지 상태 진입 (한 번만 세팅)
+        if not self.is_stopped and (
+            (self.label == "RED" and self.stop_line_state == True) or self.human == "Stop"
+        ):
+            self.get_logger().info("🔴 RED/Human Stop → 정지 상태 진입")
+            self.is_stopped = True
+
+        # 🚫 정지 상태면 무조건 멈춤 (stop_line_detected가 False여도 유지)
+        if self.is_stopped:
             twist = Twist()
             twist.linear.x = 0.0
             twist.linear.y = 0.0
             self.pub_cmd_vel.publish(twist)
+            return
+        
         elif "YELLOW" == self.label or "Slow" == self.human:
             twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05))/2
         else:

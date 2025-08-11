@@ -313,8 +313,6 @@ class DetectTrafficLight(Node):
             self.current_light = "YELLOW"
         elif detect_green:
             self.current_light = "GREEN"
-        else:
-            self.current_light = "NONE"
 
         msg = String()
         msg.data = self.current_light

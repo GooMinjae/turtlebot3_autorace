@@ -28,16 +28,143 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
 from sensor_msgs.msg import Image
-from std_msgs.msg import Float64, Bool
-from std_msgs.msg import Bool, UInt8
+from std_msgs.msg import Float64, Bool, UInt8
 
+from typing import Tuple
 
 BASE_FRACTION = 3000
+
+def detect_stop_curve_using_lanes(
+    bgr: np.ndarray,
+    left_fitx: np.ndarray,
+    right_fitx: np.ndarray,
+    roi_height_ratio: float = 0.60,   # 하단 ROI 비율(넓게)
+    x_margin_ratio: float = 0.06,     # 좌우 가장자리 컷
+    y_from_ratio: float = 0.72,       # ROI 내부에서 검사 시작 y (아래쪽 기준)
+    y_to_ratio: float   = 0.98,       # ROI 내부에서 검사 끝 y
+    inner_margin_px: int = -1,        # 음수면 차선 간격 기반으로 자동 산정
+    min_band_thickness: int = 4,      # 연속 행 최소 두께
+    coverage_th: float = 0.32,        # 행당 흰 픽셀 비율 임계
+) -> Tuple[bool, int, np.ndarray, float]:
+    """
+    차선 폴리라인(left_fitx/right_fitx)을 앵커로, 하단에서 '두 차선 사이가 넓게 하얗게 연결'된
+    곡선(정지선)을 검출.
+    """
+    if bgr is None or bgr.size == 0 or left_fitx is None or right_fitx is None:
+        return False, -1, bgr, 0.0
+
+    H, W = bgr.shape[:2]
+    if len(left_fitx) != H or len(right_fitx) != H:
+        # 차선 배열 길이가 프레임 높이와 다르면 스케일 보정
+        ly = np.linspace(0, H-1, len(left_fitx)).astype(np.int32)
+        ry = np.linspace(0, H-1, len(right_fitx)).astype(np.int32)
+        ltmp = np.zeros(H); rtmp = np.zeros(H)
+        ltmp[ly] = left_fitx; rtmp[ry] = right_fitx
+        left_fitx, right_fitx = ltmp, rtmp
+
+    # --- ROI 추출 (하단부만) ---
+    roi_h = max(8, int(H * roi_height_ratio))
+    y0 = H - roi_h
+    roi = bgr[y0:H, :].copy()
+
+    # 좌우 마진 컷
+    xm = int(W * x_margin_ratio)
+    x0, x1 = max(0, xm), min(W, W - xm)
+    roi = roi[:, x0:x1]
+    RH, RW = roi.shape[:2]
+
+    # --- 이진화 (넉넉하게) ---
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    v = hsv[:, :, 2]
+    v = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(v)
+    v = cv2.GaussianBlur(v, (5, 5), 0)
+    blk = max(15, (RW // 10) | 1)
+    bin_adap = cv2.adaptiveThreshold(v, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                     cv2.THRESH_BINARY, blk, -6)
+    _, bin_fixed = cv2.threshold(v, 170, 255, cv2.THRESH_BINARY)
+    bin0 = cv2.bitwise_or(bin_adap, bin_fixed)
+
+    # 세로 성분(차선) 약하게 제거 → 가로 연결 강하게
+    verticals = cv2.morphologyEx(bin0, cv2.MORPH_OPEN,
+                                 cv2.getStructuringElement(cv2.MORPH_RECT, (3, 25)), 1)
+    bin_clean = cv2.subtract(bin0, verticals)
+    bin_clean = cv2.morphologyEx(bin_clean, cv2.MORPH_CLOSE,
+                                 cv2.getStructuringElement(cv2.MORPH_RECT, (61, 3)), 2)
+
+    # --- 검사 구간(y) 범위 설정 (ROI 내부 비율) ---
+    y_from = max(0, min(RH-1, int(RH * y_from_ratio)))
+    y_to   = max(0, min(RH-1, int(RH * y_to_ratio)))
+    if y_to <= y_from:
+        y_from, y_to = 0, RH-1
+
+    # --- 차선 x를 ROI/마진 좌표계로 변환 ---
+    lxs = np.clip(left_fitx[y0:H] - x0, 0, RW-1).astype(np.int32)
+    rxs = np.clip(right_fitx[y0:H] - x0, 0, RW-1).astype(np.int32)
+
+    # inner margin 자동 산정(차선 두께/여유)
+    if inner_margin_px <= 0:
+        # 하단 20%에서 평균 차선 폭의 6~8% 정도를 여유로
+        yb0 = int(RH*0.8)
+        lane_w_est = np.median(np.maximum(1, rxs[yb0:] - lxs[yb0:])).item()
+        inner_margin = max(8, int(lane_w_est * 0.08))
+    else:
+        inner_margin = inner_margin_px
+
+    # --- 아래→위 스윕: 두 차선 사이 ‘밝은 커버리지’의 최장 연속 구간 탐색 ---
+    max_len = 0; max_end = -1; cur = 0
+    cover_list = []
+    for y in range(y_to, y_from-1, -1):
+        xl = int(min(max(lxs[y] + inner_margin, 0), RW-1))
+        xr = int(min(max(rxs[y] - inner_margin, 0), RW-1))
+        if xr - xl < 8:
+            cover_list.append(0.0)
+            cur = 0
+            continue
+        band = bin_clean[y, xl:xr]
+        cov = float(np.count_nonzero(band == 255)) / float(xr - xl)
+        cover_list.append(cov)
+        if cov >= coverage_th:
+            cur += 1
+            if cur > max_len:
+                max_len = cur; max_end = y
+        else:
+            cur = 0
+
+    found = max_len >= int(min_band_thickness)
+    stop_y = -1
+    conf = 0.0
+    if found:
+        y_mid = max_end - max_len // 2
+        stop_y = y0 + y_mid
+        # 신뢰도: 연속 두께 + 커버리지 평균
+        seg = cover_list[(len(cover_list)-(y_to - y_mid + 1)) : (len(cover_list)-(y_to - (y_mid) ))] \
+              if len(cover_list) > 0 else [0.0]
+        conf = float(np.clip(0.5*(max_len/20.0) + 0.5*np.mean(seg), 0.0, 1.0))
+
+    # --- 디버그 합성 ---
+    dbg = bgr.copy()
+    vis = np.zeros((roi_h, W), dtype=np.uint8)
+    vis[:, x0:x1] = bin_clean
+    dbg_color = cv2.applyColorMap(vis, cv2.COLORMAP_OCEAN)
+    dbg[y0:H, :] = cv2.addWeighted(bgr[y0:H, :], 0.6, dbg_color, 0.4, 0)
+
+    # 차선/밴드 표시
+    for y in range(y_to, y_from-1, -1):
+        xl = int(min(max(lxs[y] + inner_margin, 0), RW-1)) + x0
+        xr = int(min(max(rxs[y] - inner_margin, 0), RW-1)) + x0
+        yy = y0 + y
+        if 0 <= yy < H and 0 <= xl < W and 0 <= xr < W:
+            cv2.line(dbg, (xl, yy), (xr, yy), (255, 255, 255), 1)
+    if found:
+        cv2.line(dbg, (0, stop_y), (W, stop_y), (0, 0, 255), 2)
+
+    return found, stop_y, dbg, conf
 
 class DetectLane(Node):
 
     def __init__(self):
         super().__init__('detect_lane')
+        self._stop_dbg = True
         self.subscription = self.create_subscription(
             CompressedImage,
             '/image_jpeg/compressed',
@@ -195,39 +322,6 @@ class DetectLane(Node):
 
         self.pre_centerx = 500
 
-    def detect_stop_line(self, image):
-        # 개선된 ROI: y:420~500 (위로 약간 올림), x:200~800
-        roi = image[420:500, 200:800]
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-
-        # 개선된 threshold (더 어두운 흰색도 포함)
-        _, binary = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
-
-        # 개선된 Morphology (더 작은 커널)
-        kernel = np.ones((3, 3), np.uint8)
-        processed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-
-        # 개선된 HoughLinesP 파라미터
-        lines = cv2.HoughLinesP(
-            processed,
-            rho=1,
-            theta=np.pi / 180,
-            threshold=30,
-            minLineLength=30,
-            maxLineGap=5
-        )
-
-        count_horizontal = 0
-        if lines is not None:
-            for line in lines:
-                x1, y1, x2, y2 = line[0]
-                angle = abs(np.arctan2(y2 - y1, x2 - x1)) * 180.0 / np.pi
-                if angle < 15:  # 수평선 각도 기준도 살짝 완화
-                    count_horizontal += 1
-
-        return count_horizontal >= 2  # 감지 기준도 완화
-
-
     def cbGetDetectLaneParam(self, parameters):
         for param in parameters:
             self.get_logger().info(f'Parameter name: {param.name}')
@@ -334,13 +428,18 @@ class DetectLane(Node):
 
         self.make_lane(cv_image, white_fraction, yellow_fraction)
 
-        is_stopline = self.detect_stop_line(cv_image)
-        stopline_msg = Bool()
-        stopline_msg.data = is_stopline
-        self.pub_stop_line.publish(stopline_msg)
+        found, stop_y, dbg_img, conf = detect_stop_curve_using_lanes(
+            cv_image, self.left_fitx, self.right_fitx,
+            roi_height_ratio=0.60,     # 필요시 0.55~0.70 튜닝
+            coverage_th=0.30,          # 더 느슨하게 하려면 0.28~0.34
+            min_band_thickness=4       # 3~6 사이에서 조절
+        )
+        self.pub_stop_line.publish(Bool(data=found))
+        # 디버그 보고 싶으면 퍼블리셔 하나 더:
+        # self.pub_stop_dbg.publish(self.cvBridge.cv2_to_compressed_imgmsg(dbg_img, 'jpg'))
+        if found:
+            self.get_logger().info(f"[STOP curve] y={stop_y} conf={conf:.2f}")
 
-        if is_stopline:
-            self.get_logger().info("Stop Line Detected)")
 
     def maskWhiteLane(self, image):
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
