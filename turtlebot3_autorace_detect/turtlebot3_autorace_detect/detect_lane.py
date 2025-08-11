@@ -29,8 +29,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
 from sensor_msgs.msg import Image
 from std_msgs.msg import Float64, Bool
-from std_msgs.msg import UInt8
-from std_msgs.msg import String
+from std_msgs.msg import Bool, UInt8
 
 
 BASE_FRACTION = 3000
@@ -39,6 +38,14 @@ class DetectLane(Node):
 
     def __init__(self):
         super().__init__('detect_lane')
+        self.subscription = self.create_subscription(
+            CompressedImage,
+            '/image_jpeg/compressed',
+            self.cbFindLane,
+            10)
+        self.subscription
+
+        self.pub_stop_line = self.create_publisher(Bool, '/detect/stop_line', 10)
 
         parameter_descriptor_hue = ParameterDescriptor(
             description='hue parameter range',
@@ -188,6 +195,39 @@ class DetectLane(Node):
 
         self.pre_centerx = 500
 
+    def detect_stop_line(self, image):
+        # 개선된 ROI: y:420~500 (위로 약간 올림), x:200~800
+        roi = image[420:500, 200:800]
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+        # 개선된 threshold (더 어두운 흰색도 포함)
+        _, binary = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+
+        # 개선된 Morphology (더 작은 커널)
+        kernel = np.ones((3, 3), np.uint8)
+        processed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+
+        # 개선된 HoughLinesP 파라미터
+        lines = cv2.HoughLinesP(
+            processed,
+            rho=1,
+            theta=np.pi / 180,
+            threshold=30,
+            minLineLength=30,
+            maxLineGap=5
+        )
+
+        count_horizontal = 0
+        if lines is not None:
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                angle = abs(np.arctan2(y2 - y1, x2 - x1)) * 180.0 / np.pi
+                if angle < 15:  # 수평선 각도 기준도 살짝 완화
+                    count_horizontal += 1
+
+        return count_horizontal >= 2  # 감지 기준도 완화
+
+
     def cbGetDetectLaneParam(self, parameters):
         for param in parameters:
             self.get_logger().info(f'Parameter name: {param.name}')
@@ -295,6 +335,14 @@ class DetectLane(Node):
             self.mov_avg_right = self.mov_avg_right[0:MOV_AVG_LENGTH]
 
         self.make_lane(cv_image, white_fraction, yellow_fraction)
+
+        is_stopline = self.detect_stop_line(cv_image)
+        stopline_msg = Bool()
+        stopline_msg.data = is_stopline
+        self.pub_stop_line.publish(stopline_msg)
+
+        if is_stopline:
+            self.get_logger().info("Stop Line Detected)")
 
     def maskWhiteLane(self, image):
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
@@ -637,6 +685,10 @@ class DetectLane(Node):
 
             if white_fraction > BASE_FRACTION and yellow_fraction <= BASE_FRACTION:
                 centerx = np.subtract(self.right_fitx, 280)
+                # if getattr(self, "prefer_left_lane", False):  # ← 왼쪽 변경 중이면
+                #     centerx = np.subtract(self.right_fitx, LANE_WIDTH * 2 // 2)  # 왼쪽 차선 추정 쪽으로 더 왼쪽
+                # else:
+                #     centerx = np.subtract(self.right_fitx, LANE_WIDTH)           # 기존 로직(오른쪽 차선 중심)
                 pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
 
                 lane_state.data = 3
@@ -651,6 +703,10 @@ class DetectLane(Node):
 
             if white_fraction <= BASE_FRACTION and yellow_fraction > BASE_FRACTION:
                 centerx = np.add(self.left_fitx, 280)
+                # if getattr(self, "prefer_left_lane", False):  # ← 왼쪽 변경 중이면
+                #     centerx = np.subtract(self.left_fitx, LANE_WIDTH)            # 노란선의 왼쪽(=왼쪽 차선 중심)
+                # else:
+                #     centerx = np.add(self.left_fitx, LANE_WIDTH)                 # 기존 로직(오른쪽 차선 중심)
                 pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
 
                 lane_state.data = 1
@@ -665,6 +721,10 @@ class DetectLane(Node):
 
         elif self.reliability_white_line <= 50 and self.reliability_yellow_line > 50:
             centerx = np.add(self.left_fitx, 280)
+            # if getattr(self, "prefer_left_lane", False):  # ← 왼쪽 변경 중이면
+            #     centerx = np.subtract(self.left_fitx, LANE_WIDTH)            # 노란선의 왼쪽(=왼쪽 차선 중심)
+            # else:
+            #     centerx = np.add(self.left_fitx, LANE_WIDTH)                 # 기존 로직(오른쪽 차선 중심)
             pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
 
             lane_state.data = 1
@@ -679,6 +739,10 @@ class DetectLane(Node):
 
         elif self.reliability_white_line > 50 and self.reliability_yellow_line <= 50:
             centerx = np.subtract(self.right_fitx, 280)
+            # if getattr(self, "prefer_left_lane", False):  # ← 왼쪽 변경 중이면
+            #     centerx = np.subtract(self.right_fitx, LANE_WIDTH * 2 // 2)  # 왼쪽 차선 추정 쪽으로 더 왼쪽
+            # else:
+            #     centerx = np.subtract(self.right_fitx, LANE_WIDTH)           # 기존 로직(오른쪽 차선 중심)
             pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
 
             lane_state.data = 3
@@ -693,6 +757,7 @@ class DetectLane(Node):
 
         else:
             self.is_center_x_exist = False
+            # self.is_center_x_exist = True
 
             lane_state.data = 0
 

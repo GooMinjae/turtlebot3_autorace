@@ -44,12 +44,13 @@ class ControlLane(Node):
             1
         )
         self.human = "NONE"
-        # self.msg_light = self.create_subscription(
-        #     String,
-        #     '/control/label',
-        #     self.callback_light,
-        #     1
-        # )
+
+        self.stop_line_detected = self.create_subscription(
+             Bool,
+             '/detect/stop_line',
+             self.callback_stop_line,
+             1
+        )
         self.stop_line_detected = False
         
         # self.src_light = self.create_client(
@@ -132,6 +133,10 @@ class ControlLane(Node):
 
     # def callback_light(self, light):
     #     self.label = light.data
+    def callback_stop_line(self, msg):
+        self.stop_line_detected = msg.data
+        if self.stop_line_detected:
+            self.get_logger().info("Stop line detected! Stopping.")
 
     def callback_human(self, human):
         self.human = human.data
@@ -209,7 +214,7 @@ class ControlLane(Node):
             twist.linear.x = 0.0
             twist.linear.y = 0.0
             self.pub_cmd_vel.publish(twist)
-        elif "yellow_ligth" == self.label or "Slow" == self.human:
+        elif "YELLOW" == self.label or "Slow" == self.human:
             twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05))/2
         else:
             twist.linear.x = min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)
