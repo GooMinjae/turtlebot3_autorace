@@ -284,8 +284,6 @@ class DetectLane(Node):
                 self.get_logger().warn(f"점선 인식 결과: {is_dashed}")
                 if is_dashed:
                     self.detect_dot_flag = True
-                    self.prefer_left_lane = True  # ✅ 점선 감지 시 왼쪽 차선 기준 사용
-                    self.yellow_line_miss_count = 0
                 msg = Bool()
                 msg.data = is_dashed
                 self.pub_dashed.publish(msg)
@@ -567,8 +565,15 @@ class DetectLane(Node):
         right_result = self._check_dashed_roi(roi_right, min_len, max_len, min_segments, std_threshold, visualize, "RIGHT")
 
         result = left_result or right_result
-        self.get_logger().warn(f"점선 인식 결과: {result}")
+        if left_result:
+            res_dir = "left"
+        elif right_result:
+            res_dir = "right"
+        else:
+            res_dir = None
+        self.get_logger().warn(f"점선 인식 결과: [{res_dir}]: {result}")
         return result
+        # return result, res_dir
 
 
     def _check_dashed_roi(self, roi, min_len, max_len, min_segments, std_threshold, visualize, label="ROI"):

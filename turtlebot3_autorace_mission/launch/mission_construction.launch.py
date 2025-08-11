@@ -70,8 +70,18 @@ def generate_launch_description():
             ]
         )
 
+    person_node = Node(
+            package='turtlebot3_autorace_detect',
+            executable='person_detector',
+            name='person_detector',
+            output='screen',
+            remappings=[
+            ]
+    )
+
     return LaunchDescription([
         avoid_object_node,
         detect_lane_node,
         control_node,
+        person_node,
     ])
