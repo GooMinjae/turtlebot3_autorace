@@ -78,10 +78,11 @@ class DetectSign(Node):
         dir_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
         dir_path = os.path.join(dir_path, 'image')
 
-        self.img_tunnel = cv2.imread(dir_path + '/10km', 0)  # trainImage3
-        self.img_tunnel = cv2.imread(dir_path + '/50km', 0)  # trainImage3
+        self.img_10km = cv2.imread(dir_path + '/10km', 0)  # trainImage3
+        self.img_50km = cv2.imread(dir_path + '/50km', 0)  # trainImage3
+        self.kp_10km, self.des_10km = self.sift.detectAndCompute(self.img_10km, None)
 
-        self.kp_tunnel, self.des_tunnel = self.sift.detectAndCompute(self.img_tunnel, None)
+        self.kp_50km, self.des_50km = self.sift.detectAndCompute(self.img_50km, None)
 
         FLANN_INDEX_KDTREE = 0
         index_params = {
@@ -136,11 +137,11 @@ class DetectSign(Node):
                 kp1[m.queryIdx].pt for m in good_10km
             ]).reshape(-1, 1, 2)
             dst_pts = np.float32([
-                self.kp_tunnel[m.trainIdx].pt for m in good_10km
+                self.kp_10km[m.trainIdx].pt for m in good_10km
             ]).reshape(-1, 1, 2)
 
             M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-            matchesMask_tunnel = mask.ravel().tolist()
+            matchesMask_10km = mask.ravel().tolist()
 
             mse = self.fnCalcMSE(src_pts, dst_pts)
             if mse < MIN_MSE_DECISION:
@@ -152,7 +153,7 @@ class DetectSign(Node):
                 self.get_logger().info('tunnel')
                 image_out_num = 4
         else:
-            matchesMask_tunnel = None
+            matchesMask_10km = None
             # self.get_logger().info('nothing')
         good_50km = []
         for m, n in matches_tunnel:
@@ -163,11 +164,11 @@ class DetectSign(Node):
                 kp1[m.queryIdx].pt for m in good_50km
             ]).reshape(-1, 1, 2)
             dst_pts = np.float32([
-                self.kp_tunnel[m.trainIdx].pt for m in good_50km
+                self.kp_50km[m.trainIdx].pt for m in good_50km
             ]).reshape(-1, 1, 2)
 
             M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-            matchesMask_tunnel = mask.ravel().tolist()
+            matchesMask_50km = mask.ravel().tolist()
 
             mse = self.fnCalcMSE(src_pts, dst_pts)
             if mse < MIN_MSE_DECISION:
@@ -179,7 +180,7 @@ class DetectSign(Node):
                 self.get_logger().info('tunnel')
                 image_out_num = 4
         else:
-            matchesMask_tunnel = None
+            matchesMask_50km = None
             # self.get_logger().info('nothing')
 
         if image_out_num == 1:
@@ -199,15 +200,15 @@ class DetectSign(Node):
             draw_params_tunnel = {
                 'matchColor': (255, 0, 0),  # draw matches in green color
                 'singlePointColor': None,
-                'matchesMask': matchesMask_tunnel,  # draw only inliers
+                'matchesMask': matchesMask_10km,  # draw only inliers
                 'flags': 2,
             }
 
             final_tunnel = cv2.drawMatches(
                 cv_image_input,
                 kp1,
-                self.img_tunnel,
-                self.kp_tunnel,
+                self.img_10km,
+                self.kp_10km,
                 good_10km,
                 None,
                 **draw_params_tunnel
@@ -229,15 +230,15 @@ class DetectSign(Node):
             draw_params_tunnel = {
                 'matchColor': (255, 0, 0),  # draw matches in green color
                 'singlePointColor': None,
-                'matchesMask': matchesMask_tunnel,  # draw only inliers
+                'matchesMask': matchesMask_50km,  # draw only inliers
                 'flags': 2,
             }
 
             final_tunnel = cv2.drawMatches(
                 cv_image_input,
                 kp1,
-                self.img_tunnel,
-                self.kp_tunnel,
+                self.img_50km,
+                self.kp_50km,
                 good_50km,
                 None,
                 **draw_params_tunnel

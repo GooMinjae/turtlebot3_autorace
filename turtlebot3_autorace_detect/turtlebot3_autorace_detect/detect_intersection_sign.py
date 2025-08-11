@@ -163,6 +163,8 @@ class DetectSign(Node):
                 self.pub_sign.publish(msg_sign)
                 self.get_logger().info('Detect intersection sign')
                 image_out_num = 2
+        else:
+            matches_intersection = None
 
         good_left = []
         for m, n in matches_left:
