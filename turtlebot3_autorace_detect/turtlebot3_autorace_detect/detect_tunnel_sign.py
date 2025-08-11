@@ -127,16 +127,16 @@ class DetectSign(Node):
 
         image_out_num = 1
 
-        good_tunnel = []
+        good_10km = []
         for m, n in matches_tunnel:
             if m.distance < 0.7*n.distance:
-                good_tunnel.append(m)
-        if len(good_tunnel) > MIN_MATCH_COUNT:
+                good_10km.append(m)
+        if len(good_10km) > MIN_MATCH_COUNT:
             src_pts = np.float32([
-                kp1[m.queryIdx].pt for m in good_tunnel
+                kp1[m.queryIdx].pt for m in good_10km
             ]).reshape(-1, 1, 2)
             dst_pts = np.float32([
-                self.kp_tunnel[m.trainIdx].pt for m in good_tunnel
+                self.kp_tunnel[m.trainIdx].pt for m in good_10km
             ]).reshape(-1, 1, 2)
 
             M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
@@ -145,6 +145,33 @@ class DetectSign(Node):
             mse = self.fnCalcMSE(src_pts, dst_pts)
             if mse < MIN_MSE_DECISION:
                 msg_sign = UInt8()
+                msg_sign.data = self.TrafficSign.tunnel.value
+
+                self.pub_traffic_sign.publish(msg_sign)
+
+                self.get_logger().info('tunnel')
+                image_out_num = 4
+        else:
+            matchesMask_tunnel = None
+            # self.get_logger().info('nothing')
+        good_50km = []
+        for m, n in matches_tunnel:
+            if m.distance < 0.7*n.distance:
+                good_50km.append(m)
+        if len(good_50km) > MIN_MATCH_COUNT:
+            src_pts = np.float32([
+                kp1[m.queryIdx].pt for m in good_50km
+            ]).reshape(-1, 1, 2)
+            dst_pts = np.float32([
+                self.kp_tunnel[m.trainIdx].pt for m in good_50km
+            ]).reshape(-1, 1, 2)
+
+            M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+            matchesMask_tunnel = mask.ravel().tolist()
+
+            mse = self.fnCalcMSE(src_pts, dst_pts)
+            if mse < MIN_MSE_DECISION:
+                msg_sign = String()
                 msg_sign.data = self.TrafficSign.tunnel.value
 
                 self.pub_traffic_sign.publish(msg_sign)
@@ -181,7 +208,37 @@ class DetectSign(Node):
                 kp1,
                 self.img_tunnel,
                 self.kp_tunnel,
-                good_tunnel,
+                good_10km,
+                None,
+                **draw_params_tunnel
+            )
+
+            if self.pub_image_type == 'compressed':
+                self.pub_image_traffic_sign.publish(
+                    self.cvBridge.cv2_to_compressed_imgmsg(
+                        final_tunnel, 'jpg'
+                    )
+                )
+            elif self.pub_image_type == 'raw':
+                self.pub_image_traffic_sign.publish(
+                    self.cvBridge.cv2_to_imgmsg(
+                        final_tunnel, 'bgr8'
+                    )
+                )
+        elif image_out_num == 5:
+            draw_params_tunnel = {
+                'matchColor': (255, 0, 0),  # draw matches in green color
+                'singlePointColor': None,
+                'matchesMask': matchesMask_tunnel,  # draw only inliers
+                'flags': 2,
+            }
+
+            final_tunnel = cv2.drawMatches(
+                cv_image_input,
+                kp1,
+                self.img_tunnel,
+                self.kp_tunnel,
+                good_50km,
                 None,
                 **draw_params_tunnel
             )

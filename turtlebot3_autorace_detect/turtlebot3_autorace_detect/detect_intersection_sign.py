@@ -158,7 +158,7 @@ class DetectSign(Node):
             mse = self.fnCalcMSE(src_pts, dst_pts)
             if mse < MIN_MSE_DECISION:
                 msg_sign = String()
-                msg_sign.data = "None"
+                msg_sign.data = "intersection"
 
                 self.pub_sign.publish(msg_sign)
                 self.get_logger().info('Detect intersection sign')
