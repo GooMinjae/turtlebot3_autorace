@@ -279,7 +279,6 @@ class DetectTrafficLight(Node):
         if detect_red:
             cv2.putText(self.cv_image, 'RED', (self.point_x, self.point_y),
                         cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 0, 255))
-            self.label = "red_light"
 
 
 
@@ -289,7 +288,6 @@ class DetectTrafficLight(Node):
         if detect_yellow:
             cv2.putText(self.cv_image, 'YELLOW', (self.point_x, self.point_y),
                         cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 255, 255))
-            self.label = "yellow_light"
             
             
 
@@ -299,7 +297,6 @@ class DetectTrafficLight(Node):
         if detect_green:
             cv2.putText(self.cv_image, 'GREEN', (self.point_x, self.point_y),
                         cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 255, 0))
-            self.label = "green_light"
             
 
         if self.pub_image_type == 'compressed':
@@ -394,7 +391,7 @@ class DetectTrafficLight(Node):
         params.minThreshold = 0
         params.maxThreshold = 255
         params.filterByArea = True
-        params.minArea = 50
+        params.minArea = 100
         params.maxArea = 600
         params.filterByCircularity = True
         params.minCircularity = 0.5

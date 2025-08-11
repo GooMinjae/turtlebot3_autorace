@@ -27,6 +27,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
 from sensor_msgs.msg import Image
 from std_msgs.msg import UInt8
+from std_msgs.msg import String
 
 
 class DetectSign(Node):
@@ -52,7 +53,7 @@ class DetectSign(Node):
                 10
             )
 
-        self.pub_traffic_sign = self.create_publisher(UInt8, '/detect/traffic_sign', 10)
+        # self.pub_traffic_sign = self.create_publisher(UInt8, '/detect/traffic_sign', 10)
         if self.pub_image_type == 'compressed':
             self.pub_image_traffic_sign = self.create_publisher(
                 CompressedImage,
@@ -62,7 +63,7 @@ class DetectSign(Node):
             self.pub_image_traffic_sign = self.create_publisher(
                 Image, '/detect/image_output', 10
             )
-
+        self.pub_sign = self.create_publisher(String, "/detect/sign", 1)
         self.cvBridge = CvBridge()
         self.TrafficSign = Enum('TrafficSign', 'intersection left right')
         self.counter = 1
@@ -73,7 +74,7 @@ class DetectSign(Node):
 
     def fnPreproc(self):
         # Initiate SIFT detector
-        self.sift = cv2.SIFT_create()
+        self.sift = cv2.SIFT_create(nfeatures = 600 , contrastThreshold = 0.03)
 
         dir_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
         dir_path = os.path.join(dir_path, 'image')
@@ -95,7 +96,7 @@ class DetectSign(Node):
         }
 
         search_params = {
-            'checks': 50
+            'checks': 80
         }
 
         self.flann = cv2.FlannBasedMatcher(index_params, search_params)
@@ -123,7 +124,7 @@ class DetectSign(Node):
         elif self.sub_image_type == 'raw':
             cv_image_input = self.cvBridge.imgmsg_to_cv2(image_msg, 'bgr8')
 
-        MIN_MATCH_COUNT = 5
+        MIN_MATCH_COUNT = 3
         MIN_MSE_DECISION = 70000
 
         # find the keypoints and descriptors with SIFT
@@ -137,7 +138,7 @@ class DetectSign(Node):
 
         good_intersection = []
         for m, n in matches_intersection:
-            if m.distance < 0.7*n.distance:
+            if m.distance < 0.70*n.distance:
                 good_intersection.append(m)
         if len(good_intersection) > MIN_MATCH_COUNT:
             src_pts = np.float32([kp1[m.queryIdx].pt for m in good_intersection]).reshape(-1, 1, 2)
@@ -150,16 +151,16 @@ class DetectSign(Node):
 
             mse = self.fnCalcMSE(src_pts, dst_pts)
             if mse < MIN_MSE_DECISION:
-                msg_sign = UInt8()
-                msg_sign.data = self.TrafficSign.intersection.value
+                msg_sign = String()
+                msg_sign.data = "None"
 
-                self.pub_traffic_sign.publish(msg_sign)
+                self.pub_sign.publish(msg_sign)
                 self.get_logger().info('Detect intersection sign')
                 image_out_num = 2
 
         good_left = []
         for m, n in matches_left:
-            if m.distance < 0.7*n.distance:
+            if m.distance < 0.70*n.distance:
                 good_left.append(m)
         if len(good_left) > MIN_MATCH_COUNT:
             src_pts = np.float32([kp1[m.queryIdx].pt for m in good_left]).reshape(-1, 1, 2)
@@ -172,14 +173,18 @@ class DetectSign(Node):
 
             mse = self.fnCalcMSE(src_pts, dst_pts)
             if mse < MIN_MSE_DECISION:
-                msg_sign = UInt8()
-                msg_sign.data = self.TrafficSign.left.value
+                msg_sign = String()
+                msg_sign.data = "left"
 
-                self.pub_traffic_sign.publish(msg_sign)
+                self.pub_sign.publish(msg_sign)
                 self.get_logger().info('Detect left sign')
                 image_out_num = 3
         else:
             matches_left = None
+            msg_sign = String()
+            msg_sign.data = "NONE"
+
+            self.pub_sign.publish(msg_sign)
 
         good_right = []
         for m, n in matches_right:
@@ -196,14 +201,18 @@ class DetectSign(Node):
 
             mse = self.fnCalcMSE(src_pts, dst_pts)
             if mse < MIN_MSE_DECISION:
-                msg_sign = UInt8()
-                msg_sign.data = self.TrafficSign.right.value
+                msg_sign = String()
+                msg_sign.data = "right"
 
-                self.pub_traffic_sign.publish(msg_sign)
+                self.pub_sign.publish(msg_sign)
                 self.get_logger().info('Detect right sign')
                 image_out_num = 4
         else:
             matches_right = None
+            msg_sign = String()
+            msg_sign.data = "NONE"
+
+            self.pub_sign.publish(msg_sign)
 
         if image_out_num == 1:
             if self.pub_image_type == 'compressed':

@@ -87,6 +87,13 @@ class ControlLane(Node):
             '/control/cmd_vel',
             1
         )
+        # self.sign="NONE"
+        # self.sub_sign = self.create_subscription(
+        #     String,
+        #     '/detect/sign',
+        #     self.callback_sign,
+        #     1
+        # )
 
         # PD control related variables
         self.last_error = 0
@@ -165,7 +172,8 @@ class ControlLane(Node):
             self.get_logger().info("Human detected! Stop.")
         elif self.human == "Slow":
             self.get_logger().info("Human detected! Slow.")
-
+    # def callback_sign(self, sign):
+    #     self.sign = sign.data
 
     def callback_label(self, msg):
         self.label = msg.data
@@ -252,6 +260,8 @@ class ControlLane(Node):
         else:
             twist.linear.x = min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)
         twist.angular.z = -max(angular_z, -2.0) if angular_z < 0 else -min(angular_z, 2.0)
+        # if self.sign == "left":
+        #     twist.angular.z = 0.3
         self.pub_cmd_vel.publish(twist)
 
         # ---------------------------------------------------------------------
