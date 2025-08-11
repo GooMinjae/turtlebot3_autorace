@@ -84,6 +84,18 @@ def generate_launch_description():
             ('/detect/image_output_sub3/compressed', '/detect/image_green_light/compressed'),
         ],
     )
+    detect_sign_node = Node(
+        package='turtlebot3_autorace_detect',
+        executable=['detect_intersection_sign'],
+        name=['detect_intersection_sign'],
+        output='screen',
+        remappings=[
+            ('/detect/image_input', '/camera/image_compensated'),
+            ('/detect/image_input/compressed', '/camera/image_compensated/compressed'),
+            ('/detect/image_output', '/detect/image_traffic_sign'),
+            ('/detect/image_output/compressed', '/detect/image_traffic_sign/compressed'),
+        ]
+    )
 
     control_node = Node(
             package='turtlebot3_autorace_mission',
@@ -110,6 +122,7 @@ def generate_launch_description():
         detect_lane_node,
         detect_traffic_light_node,
         person_node,
+        detect_sign_node,
         control_node,
 
     ])
