@@ -272,6 +272,10 @@ class DetectLane(Node):
                 )
         self.pub_dashed = self.create_publisher(Bool, '/detect/dashed_line', 1)
 
+        self.sub_reset_dashed = self.create_subscription(
+            Bool, '/detect/reset_dashed', self.cb_reset_dashed, 1
+        )
+
         if self.is_calibration_mode:
             if self.pub_image_type == 'compressed':
                 self.pub_image_white_lane = self.create_publisher(
@@ -338,6 +342,14 @@ class DetectLane(Node):
             # 리스트 초기화
             self.values.clear()
         # self.sign = msg.data
+
+    def cb_reset_dashed(self, msg: Bool):
+        if msg.data:
+            self.detect_dot_flag = False
+            # 점선 카운터도 리셋해주면 안정적
+            self.dashed_counter = {"LEFT": 0, "RIGHT": 0}
+            self.get_logger().info("🔁 reset_dashed 수신 → 점선 인식 재개")
+
 
     def cbGetDetectLaneParam(self, parameters):
         for param in parameters:
@@ -755,6 +767,12 @@ class DetectLane(Node):
 
         # both lane -> 2, left lane -> 1, right lane -> 3, none -> 0
         lane_state = UInt8()
+
+
+        if lane_state.data == 2:  # 양쪽 차선이 뚜렷
+            self.detect_dot_flag = False
+            self.dashed_counter = {"LEFT": 0, "RIGHT": 0}
+
 
         self.get_logger().info(f"yellow: {yellow_fraction}, white: {white_fraction}")
         self.get_logger().info(
