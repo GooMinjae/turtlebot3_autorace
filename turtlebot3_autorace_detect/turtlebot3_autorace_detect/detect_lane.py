@@ -338,11 +338,8 @@ class DetectLane(Node):
         if len(self.values) >= 5:
             # 빈도수 계산
             most_common_value, count = Counter(self.values).most_common(1)[0]
-            if msg.data == "left":
-                with self.lock:
-                    self.sign = msg.data
-                self.hold_timer = threading.Timer(30.0, self.clear_value)
-                self.hold_timer.start()
+            self.sign = most_common_value
+            self.values.clear()
 
     def cb_reset_dashed(self, msg: Bool):
         if msg.data:
