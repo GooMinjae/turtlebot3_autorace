@@ -28,6 +28,7 @@ from sensor_msgs.msg import CompressedImage
 from sensor_msgs.msg import Image
 from std_msgs.msg import UInt8
 from std_msgs.msg import String
+import time
 
 
 class DetectSign(Node):
@@ -74,13 +75,7 @@ class DetectSign(Node):
 
     def fnPreproc(self):
         # Initiate SIFT detector
-        self.sift = cv2.SIFT_create(
-                                    nfeatures=0,              # 제한 없음
-                                    nOctaveLayers=4,           # 스케일 공간 분해능 증가
-                                    contrastThreshold=0.02,    # 낮은 대비도 검출 (기본 0.04 → 0.02)
-                                    edgeThreshold=8,           # 에지 필터 완화 (기본 10 → 8)
-                                    sigma=1.6                  # 초기 블러는 기본 유지
-                                    )
+        self.sift = cv2.SIFT_create()
 
         dir_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
         dir_path = os.path.join(dir_path, 'image')
@@ -102,7 +97,7 @@ class DetectSign(Node):
         }
 
         search_params = {
-            'checks': 70
+            'checks': 90
         }
 
         self.flann = cv2.FlannBasedMatcher(index_params, search_params)
@@ -130,8 +125,8 @@ class DetectSign(Node):
         elif self.sub_image_type == 'raw':
             cv_image_input = self.cvBridge.imgmsg_to_cv2(image_msg, 'bgr8')
 
-        MIN_MATCH_COUNT = 5
-        MIN_MSE_DECISION = 70000
+        MIN_MATCH_COUNT = 6
+        MIN_MSE_DECISION = 50000
 
         # find the keypoints and descriptors with SIFT
         kp1, des1 = self.sift.detectAndCompute(cv_image_input, None)
@@ -193,7 +188,7 @@ class DetectSign(Node):
 
         good_right = []
         for m, n in matches_right:
-            if m.distance < 0.7*n.distance:
+            if m.distance < 0.6*n.distance:
                 good_right.append(m)
         if len(good_right) > MIN_MATCH_COUNT:
             src_pts = np.float32([kp1[m.queryIdx].pt for m in good_right]).reshape(-1, 1, 2)

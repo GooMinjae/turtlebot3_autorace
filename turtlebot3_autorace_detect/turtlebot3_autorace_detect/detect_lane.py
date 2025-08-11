@@ -29,7 +29,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
 from sensor_msgs.msg import Image
 from std_msgs.msg import Float64, Bool, UInt8 ,String
-
+import threading
 from typing import Tuple
 from collections import Counter
 BASE_FRACTION = 3000
@@ -330,7 +330,7 @@ class DetectLane(Node):
 
         self.detect_dot_flag = False
         self.values = []
-
+        self.lock = threading.Lock()
         self.pre_centerx = 500
     def callback_sign(self,msg):
         self.values.append(msg.data)
@@ -338,10 +338,11 @@ class DetectLane(Node):
         if len(self.values) >= 5:
             # 빈도수 계산
             most_common_value, count = Counter(self.values).most_common(1)[0]
-            self.sign = most_common_value
-            # 리스트 초기화
-            self.values.clear()
-        # self.sign = msg.data
+            if msg.data == "left":
+                with self.lock:
+                    self.sign = msg.data
+                self.hold_timer = threading.Timer(30.0, self.clear_value)
+                self.hold_timer.start()
 
     def cb_reset_dashed(self, msg: Bool):
         if msg.data:

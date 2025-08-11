@@ -150,7 +150,7 @@ class DetectSign(Node):
 
                 self.pub_traffic_sign.publish(msg_sign)
 
-                self.get_logger().info('tunnel')
+                self.get_logger().info('10km')
                 image_out_num = 4
         else:
             matchesMask_10km = None
@@ -177,8 +177,8 @@ class DetectSign(Node):
 
                 self.pub_traffic_sign.publish(msg_sign)
 
-                self.get_logger().info('tunnel')
-                image_out_num = 4
+                self.get_logger().info('50km')
+                image_out_num = 5
         else:
             matchesMask_50km = None
             # self.get_logger().info('nothing')
@@ -197,63 +197,63 @@ class DetectSign(Node):
                     )
                 )
         elif image_out_num == 4:
-            draw_params_tunnel = {
+            draw_params_10km = {
                 'matchColor': (255, 0, 0),  # draw matches in green color
                 'singlePointColor': None,
                 'matchesMask': matchesMask_10km,  # draw only inliers
                 'flags': 2,
             }
 
-            final_tunnel = cv2.drawMatches(
+            final_10km = cv2.drawMatches(
                 cv_image_input,
                 kp1,
                 self.img_10km,
                 self.kp_10km,
                 good_10km,
                 None,
-                **draw_params_tunnel
+                **draw_params_10km
             )
 
             if self.pub_image_type == 'compressed':
                 self.pub_image_traffic_sign.publish(
                     self.cvBridge.cv2_to_compressed_imgmsg(
-                        final_tunnel, 'jpg'
+                        final_10km, 'jpg'
                     )
                 )
             elif self.pub_image_type == 'raw':
                 self.pub_image_traffic_sign.publish(
                     self.cvBridge.cv2_to_imgmsg(
-                        final_tunnel, 'bgr8'
+                        final_10km, 'bgr8'
                     )
                 )
         elif image_out_num == 5:
-            draw_params_tunnel = {
+            draw_params_50km = {
                 'matchColor': (255, 0, 0),  # draw matches in green color
                 'singlePointColor': None,
                 'matchesMask': matchesMask_50km,  # draw only inliers
                 'flags': 2,
             }
 
-            final_tunnel = cv2.drawMatches(
+            final_50km = cv2.drawMatches(
                 cv_image_input,
                 kp1,
                 self.img_50km,
                 self.kp_50km,
                 good_50km,
                 None,
-                **draw_params_tunnel
+                **draw_params_50km
             )
 
             if self.pub_image_type == 'compressed':
                 self.pub_image_traffic_sign.publish(
                     self.cvBridge.cv2_to_compressed_imgmsg(
-                        final_tunnel, 'jpg'
+                        final_50km, 'jpg'
                     )
                 )
             elif self.pub_image_type == 'raw':
                 self.pub_image_traffic_sign.publish(
                     self.cvBridge.cv2_to_imgmsg(
-                        final_tunnel, 'bgr8'
+                        final_50km, 'bgr8'
                     )
                 )
 
