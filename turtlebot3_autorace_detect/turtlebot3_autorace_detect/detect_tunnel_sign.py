@@ -119,8 +119,8 @@ class DetectSign(Node):
         elif self.sub_image_type == 'raw':
             cv_image_input = self.cvBridge.imgmsg_to_cv2(image_msg, 'bgr8')
 
-        MIN_MATCH_COUNT = 5
-        MIN_MSE_DECISION = 50000
+        MIN_MATCH_COUNT = 3
+        MIN_MSE_DECISION = 80000
 
         # find the keypoints and descriptors with SIFT
         kp1, des1 = self.sift.detectAndCompute(cv_image_input, None)
