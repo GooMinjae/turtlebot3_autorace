@@ -144,6 +144,9 @@ class ControlLane(Node):
         )
         self.values = []
 
+        self.pub_reset_dashed = self.create_publisher(Bool, '/detect/reset_dashed', 1)
+
+
     # -------------------------------------------------------------------------
     # 추가: /person_detected 콜백
     #  - 단순히 내부 상태 변수(self.person_detected) 갱신
@@ -261,6 +264,7 @@ class ControlLane(Node):
             # self.get_logger().info("lane_state == 1: 차선 변경 완료")
             self.changing_lane = False
             self.bias = 0
+            self.pub_reset_dashed.publish(Bool(data=True))
 
         # self.get_logger().info(f"{self.bias}")
 
