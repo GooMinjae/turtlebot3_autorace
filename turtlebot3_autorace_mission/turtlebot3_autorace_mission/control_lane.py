@@ -22,6 +22,9 @@ from rclpy.node import Node
 from std_msgs.msg import Bool
 from std_msgs.msg import Float64
 from std_msgs.msg import String, UInt8
+# 맨 위 import에 추가
+from nav_msgs.msg import Odometry
+import numpy as np
 import time
 
 
@@ -29,6 +32,21 @@ class ControlLane(Node):
 
     def __init__(self):
         super().__init__('control_lane')
+        # === 가속 제어 상태 ===
+        self.current_speed = 0.07   # 시작 속도
+        self.max_speed     = 0.2   # 최대 속도(원하면 0.25~0.3)
+        self.min_speed     = 0.05   # 🚀 최소 속도 지정
+        self.accel_step    = 0.002  # 콜백당 가속량
+        self.decel_step    = 0.01  # 콜백당 감속량(조금 더 크게)
+        self.yawrate_ok    = 0.11   # |ωz| 임계(작을수록 직진일 때만 가속)
+        self.error_ok_px   = 50.0   # 차선중심 오차 허용 픽셀
+
+        # === Odom 구독 ===
+        self.odom_lin_x = 0.0
+        self.odom_yaw_z = 0.0
+        self.sub_odom = self.create_subscription(
+            Odometry, '/odom', self.callback_odom, 10
+        )
 
         self.is_stopped = False
 
@@ -105,6 +123,7 @@ class ControlLane(Node):
         # PD control related variables
         self.last_error = 0
         self.MAX_VEL = 0.1
+        self.wait_for_green = False          # 속도 0 이후 신호 대기 상태(자동 재출발 트리거)
 
         # Avoidance mode related variables
         self.avoid_active = False
@@ -147,6 +166,24 @@ class ControlLane(Node):
         self.pub_reset_dashed = self.create_publisher(Bool, '/detect/reset_dashed', 1)
 
 
+    def _publish_stop(self):
+        twist = Twist()
+        twist.linear.x = 0.0
+        twist.angular.z = 0.0
+        self.pub_cmd_vel.publish(twist)
+
+    def _publish_twist(self, twist: Twist):
+        # 멈춤 상태면 무조건 0으로 오버라이드
+        if self.is_stopped:
+            self._publish_stop()
+            return
+        
+        # 사람 감지 시 무조건 멈춤
+        if self.person_detected:
+            self._publish_stop()
+            return
+
+        self.pub_cmd_vel.publish(twist)
     # -------------------------------------------------------------------------
     # 추가: /person_detected 콜백
     #  - 단순히 내부 상태 변수(self.person_detected) 갱신
@@ -156,6 +193,10 @@ class ControlLane(Node):
         # 디버깅 원하면 아래 로그를 잠깐 켜도 좋음
         # self.get_logger().info(f'[person_detected] {self.person_detected}')
     # -----------------------------ㅊ--------------------------------------------
+
+    def callback_odom(self, msg: Odometry):
+        self.odom_lin_x = float(msg.twist.twist.linear.x)
+        self.odom_yaw_z = float(msg.twist.twist.angular.z)
 
     def _safe_publish(self, twist: Twist):
         # 멈춤 상태면 무조건 0으로 오버라이드
@@ -210,6 +251,21 @@ class ControlLane(Node):
         if self.label == "RED":
             self.get_logger().info("Red light detected! Stopping.")
 
+    def callback_avoid_cmd(self, twist_msg):
+        self.avoid_twist = twist_msg
+        if self.avoid_active:
+            self._publish_twist(self.avoid_twist)
+    
+    def callback_avoid_active(self, bool_msg):
+        self.avoid_active = bool_msg.data
+        if self.avoid_active:
+            self.get_logger().info('Avoidance mode activated.')
+        else:
+            self.get_logger().info('Avoidance mode deactivated. Returning to lane following.')
+
+    # -------------------------------------------------------------------------
+    # 수정된 callback_follow_lane 함수
+    # -------------------------------------------------------------------------
     def callback_follow_lane(self, desired_center):
         """
         Receive lane center data to generate lane following control commands.
@@ -241,7 +297,28 @@ class ControlLane(Node):
 
 
         center = desired_center.data
+        
+        # 신호등 및 정지선, 사람 감지에 따른 정지 상태 관리
+        if self.label == "GREEN":
+            self.is_stopped = False
+        if (self.label == "RED" and self.stop_line_state) or self.human == "Stop":
+            self.is_stopped = True
+        if self.is_stopped:
+            self._publish_stop()
+            return
 
+        # 2) 속도 0 이후 '신호 대기' 상태 처리:
+        #    빨간불이면 정지 유지, 빨간불 아니면 자동 재출발
+        if self.wait_for_green:
+            if self.label != "RED":
+                # 자동 재출발: 최소 속도로 시작
+                self.wait_for_green = False
+                self.current_speed = max(self.current_speed, self.min_speed)
+            else:
+                self._publish_stop()
+                return
+
+        # 차선 변경 로직
         # === 차선 변경 중일 경우: 일정 시간동안 bias 유지 ===
         # if self.dashed_detected:
         if self.dashed_detected and self.avoid_active:
@@ -276,8 +353,33 @@ class ControlLane(Node):
 
         angular_z = Kp * error + Kd * (error - self.last_error)
         self.last_error = error
+        angular_z = float(np.clip(angular_z, -2.0, 2.0))
 
+        # === 험한 지형을 위한 안정적인 속도 제어 로직 ===
+        # 차선 상태가 양호하고 (1, 3), 차선 오차가 작을 때만 가속
+        if self.lane_state in (1, 3) and abs(error) < self.error_ok_px:
+            # 차선이 잘 보이고, 오차가 작을 때만 가속
+            self.current_speed = min(self.current_speed + self.accel_step, self.max_speed)
+            linear_x = self.current_speed
+        else:
+            # 차선이 불안정하거나 오차가 클 때
+            self.current_speed = self.min_speed
+            linear_x = self.min_speed
+            
+            # 차선이 인식되지 않을 땐 회전도 멈춤 (직진)
+            if self.lane_state == 0:
+                angular_z = 0.0
+
+        # 신호/사람 Slow는 최종 게이팅
+        if self.label.startswith("YELLOW") or self.human == "SLOW":
+            linear_x *= 0.5
+        
+        # 최종 Twist 메시지 생성
         twist = Twist()
+        twist.linear.x = linear_x
+        twist.angular.z = -angular_z
+
+        # twist = Twist()
 
 
         # callback_follow_lane 안
