@@ -28,10 +28,10 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
 from sensor_msgs.msg import Image
-from std_msgs.msg import Float64, Bool, UInt8
+from std_msgs.msg import Float64, Bool, UInt8 ,String
 
 from typing import Tuple
-
+from collections import Counter
 BASE_FRACTION = 3000
 
 def detect_stop_curve_using_lanes(
@@ -300,7 +300,13 @@ class DetectLane(Node):
             )
 
         self.pub_lane_state = self.create_publisher(UInt8, '/detect/lane_state', 1)
-
+        self.sign="NONE"
+        self.sub_sign = self.create_subscription(
+            String,
+            '/detect/sign',
+            self.callback_sign,
+            1
+        )
         self.cvBridge = CvBridge()
 
         self.counter = 1
@@ -319,8 +325,19 @@ class DetectLane(Node):
         self.dashed_threshold = 1  # 임계값: 이 값 이상이면 점선으로 판단
 
         self.detect_dot_flag = False
+        self.values = []
 
         self.pre_centerx = 500
+    def callback_sign(self,msg):
+        self.values.append(msg.data)
+
+        if len(self.values) >= 5:
+            # 빈도수 계산
+            most_common_value, count = Counter(self.values).most_common(1)[0]
+            self.sign = most_common_value
+            # 리스트 초기화
+            self.values.clear()
+        # self.sign = msg.data
 
     def cbGetDetectLaneParam(self, parameters):
         for param in parameters:
@@ -794,6 +811,9 @@ class DetectLane(Node):
                 # else:
                 #     centerx = np.subtract(self.right_fitx, LANE_WIDTH)           # 기존 로직(오른쪽 차선 중심)
                 pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
+                if self.sign == "left":
+                    centerx = np.add(self.left_fitx, 280)
+                self.sign = "NONE"
 
                 lane_state.data = 3
 
@@ -805,7 +825,7 @@ class DetectLane(Node):
                     thickness=12
                     )
 
-            if white_fraction <= BASE_FRACTION and yellow_fraction > BASE_FRACTION:
+            if (white_fraction <= BASE_FRACTION and yellow_fraction > BASE_FRACTION) or self.sign == "left":
                 centerx = np.add(self.left_fitx, 280)
                 # if getattr(self, "prefer_left_lane", False):  # ← 왼쪽 변경 중이면
                 #     centerx = np.subtract(self.left_fitx, LANE_WIDTH)            # 노란선의 왼쪽(=왼쪽 차선 중심)
@@ -813,6 +833,7 @@ class DetectLane(Node):
                 #     centerx = np.add(self.left_fitx, LANE_WIDTH)                 # 기존 로직(오른쪽 차선 중심)
                 pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
 
+                
                 lane_state.data = 1
 
                 cv2.polylines(
@@ -823,7 +844,7 @@ class DetectLane(Node):
                     thickness=12
                     )
 
-        elif self.reliability_white_line <= 50 and self.reliability_yellow_line > 50:
+        elif (self.reliability_white_line <= 50 and self.reliability_yellow_line > 50)  or self.sign == "left":
             centerx = np.add(self.left_fitx, 280)
             # if getattr(self, "prefer_left_lane", False):  # ← 왼쪽 변경 중이면
             #     centerx = np.subtract(self.left_fitx, LANE_WIDTH)            # 노란선의 왼쪽(=왼쪽 차선 중심)
@@ -840,6 +861,7 @@ class DetectLane(Node):
                 color=(0, 255, 255),
                 thickness=12
                 )
+            self.sign = "NONE"
 
         elif self.reliability_white_line > 50 and self.reliability_yellow_line <= 50:
             centerx = np.subtract(self.right_fitx, 280)

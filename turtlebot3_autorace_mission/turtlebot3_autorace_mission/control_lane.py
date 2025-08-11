@@ -22,6 +22,7 @@ from rclpy.node import Node
 from std_msgs.msg import Bool
 from std_msgs.msg import Float64
 from std_msgs.msg import String, UInt8
+import time
 
 
 class ControlLane(Node):
@@ -92,13 +93,13 @@ class ControlLane(Node):
             '/control/cmd_vel',
             1
         )
-        # self.sign="NONE"
-        # self.sub_sign = self.create_subscription(
-        #     String,
-        #     '/detect/sign',
-        #     self.callback_sign,
-        #     1
-        # )
+        self.sign="NONE"
+        self.sub_sign = self.create_subscription(
+            String,
+            '/detect/sign',
+            self.callback_sign,
+            1
+        )
 
         # PD control related variables
         self.last_error = 0
@@ -140,6 +141,8 @@ class ControlLane(Node):
             self.cb_person_flag,
             10
         )
+        self.values = []
+
     # -------------------------------------------------------------------------
     # 추가: /person_detected 콜백
     #  - 단순히 내부 상태 변수(self.person_detected) 갱신
@@ -195,9 +198,9 @@ class ControlLane(Node):
             self.get_logger().info("Human detected! Stop.")
         elif self.human == "Slow":
             self.get_logger().info("Human detected! Slow.")
-    # def callback_sign(self, sign):
-    #     self.sign = sign.data
 
+    def callback_sign(self,msg):
+        self.sign = msg.data
     def callback_label(self, msg):
         self.label = msg.data
         if self.label == "RED":

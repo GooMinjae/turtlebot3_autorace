@@ -74,7 +74,13 @@ class DetectSign(Node):
 
     def fnPreproc(self):
         # Initiate SIFT detector
-        self.sift = cv2.SIFT_create(nfeatures = 600 , contrastThreshold = 0.03)
+        self.sift = cv2.SIFT_create(
+                                    nfeatures=0,              # 제한 없음
+                                    nOctaveLayers=4,           # 스케일 공간 분해능 증가
+                                    contrastThreshold=0.02,    # 낮은 대비도 검출 (기본 0.04 → 0.02)
+                                    edgeThreshold=8,           # 에지 필터 완화 (기본 10 → 8)
+                                    sigma=1.6                  # 초기 블러는 기본 유지
+                                    )
 
         dir_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
         dir_path = os.path.join(dir_path, 'image')
@@ -96,7 +102,7 @@ class DetectSign(Node):
         }
 
         search_params = {
-            'checks': 80
+            'checks': 70
         }
 
         self.flann = cv2.FlannBasedMatcher(index_params, search_params)
@@ -124,7 +130,7 @@ class DetectSign(Node):
         elif self.sub_image_type == 'raw':
             cv_image_input = self.cvBridge.imgmsg_to_cv2(image_msg, 'bgr8')
 
-        MIN_MATCH_COUNT = 3
+        MIN_MATCH_COUNT = 5
         MIN_MSE_DECISION = 70000
 
         # find the keypoints and descriptors with SIFT
@@ -138,7 +144,7 @@ class DetectSign(Node):
 
         good_intersection = []
         for m, n in matches_intersection:
-            if m.distance < 0.70*n.distance:
+            if m.distance < 0.65*n.distance:
                 good_intersection.append(m)
         if len(good_intersection) > MIN_MATCH_COUNT:
             src_pts = np.float32([kp1[m.queryIdx].pt for m in good_intersection]).reshape(-1, 1, 2)
@@ -160,7 +166,7 @@ class DetectSign(Node):
 
         good_left = []
         for m, n in matches_left:
-            if m.distance < 0.70*n.distance:
+            if m.distance < 0.7*n.distance:
                 good_left.append(m)
         if len(good_left) > MIN_MATCH_COUNT:
             src_pts = np.float32([kp1[m.queryIdx].pt for m in good_left]).reshape(-1, 1, 2)
@@ -181,10 +187,7 @@ class DetectSign(Node):
                 image_out_num = 3
         else:
             matches_left = None
-            msg_sign = String()
-            msg_sign.data = "NONE"
 
-            self.pub_sign.publish(msg_sign)
 
         good_right = []
         for m, n in matches_right:
@@ -209,10 +212,7 @@ class DetectSign(Node):
                 image_out_num = 4
         else:
             matches_right = None
-            msg_sign = String()
-            msg_sign.data = "NONE"
 
-            self.pub_sign.publish(msg_sign)
 
         if image_out_num == 1:
             if self.pub_image_type == 'compressed':
