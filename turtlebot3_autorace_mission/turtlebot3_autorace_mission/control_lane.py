@@ -101,6 +101,7 @@ class ControlLane(Node):
             1
         )
 
+
         # PD control related variables
         self.last_error = 0
         self.MAX_VEL = 0.1
@@ -294,6 +295,9 @@ class ControlLane(Node):
             twist.linear.y = 0.0
             self.pub_cmd_vel.publish(twist)
             return
+        if self.sign == "km_50":
+            twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)) *2
+
         
         elif "YELLOW" == self.label or "intersection" == self.sign:
             twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05))/2

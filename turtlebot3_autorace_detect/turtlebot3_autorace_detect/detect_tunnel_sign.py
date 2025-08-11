@@ -26,7 +26,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
 from sensor_msgs.msg import Image
-from std_msgs.msg import UInt8
+from std_msgs.msg import UInt8, String
 
 
 class DetectSign(Node):
@@ -52,7 +52,7 @@ class DetectSign(Node):
                 10
             )
 
-        self.pub_traffic_sign = self.create_publisher(UInt8, '/detect/traffic_sign', 10)
+        self.pub_traffic_sign = self.create_publisher(String, '/detect/sign', 1)
         if self.pub_image_type == 'compressed':
             self.pub_image_traffic_sign = self.create_publisher(
                 CompressedImage,
@@ -144,8 +144,8 @@ class DetectSign(Node):
 
             mse = self.fnCalcMSE(src_pts, dst_pts)
             if mse < MIN_MSE_DECISION:
-                msg_sign = UInt8()
-                msg_sign.data = self.TrafficSign.tunnel.value
+                msg_sign = String()
+                msg_sign.data = "km_10"
 
                 self.pub_traffic_sign.publish(msg_sign)
 
@@ -172,7 +172,7 @@ class DetectSign(Node):
             mse = self.fnCalcMSE(src_pts, dst_pts)
             if mse < MIN_MSE_DECISION:
                 msg_sign = String()
-                msg_sign.data = self.TrafficSign.tunnel.value
+                msg_sign.data = "km_50"
 
                 self.pub_traffic_sign.publish(msg_sign)
 
