@@ -83,11 +83,13 @@
 # if __name__ == '__main__':
 #     main()
 #!/usr/bin/env python3
+#!/usr/bin/env python3
 import time
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Twist
+from std_msgs.msg import Bool   # [ADDED]
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
@@ -100,8 +102,8 @@ class PersonDetector(Node):
         # 입력 이미지 토픽
         self.topic_image = '/camera/image_compensated'
 
-        # 속도
-        self.v_normal = 0.20   # (참고값: MUX 우선순위용, 여기선 발행 안 함)
+        # 속도 (참고용: 지금은 control_lane이 최종 제어하므로 미사용)
+        self.v_normal = 0.20
         self.v_slow   = 0.10
 
         # 핑크 HSV 범위 (필요시 튜닝)
@@ -111,16 +113,14 @@ class PersonDetector(Node):
         # 면적 임계값 / 히스테리시스
         self.area_slow    = 700     # SLOW 진입
         self.area_stop    = 1000    # STOP 진입
-        self.area_resume  = 500     # GO로 복귀 기준(낮음)
-        self.n_frames_trigger = 3   # 진입 연속 프레임
-        self.n_frames_release = 3   # 해제 연속 프레임
+        self.area_resume  = 500     # GO 복귀
+        self.n_frames_trigger = 3
+        self.n_frames_release = 3
 
-        # ROI: 상체 검출에 유리한 중간 띠
-        # 'middle' | 'bottom' | 'full' | 'custom'
+        # ROI
         self.roi_mode = 'custom'
-        self.roi_y_start_ratio = 0.35  # custom용
+        self.roi_y_start_ratio = 0.35
         self.roi_y_end_ratio   = 0.75
-
         # ===================
 
         self.bridge = CvBridge()
@@ -130,8 +130,12 @@ class PersonDetector(Node):
 
         # 구독 / 퍼블리시
         self.sub = self.create_subscription(Image, self.topic_image, self.image_cb, 10)
-        # ⚠️ 중요: 사람 감지 전용 채널로 발행
-        self.pub_person = self.create_publisher(Twist, '/person_cmd_vel', 10)
+
+        # [REMIND] 기존 방식: 직접 속도 뿌리기 (지금은 비활성화 권장)
+        # self.pub_person = self.create_publisher(Twist, '/person_cmd_vel', 10)
+
+        # [ADDED] 사람 감지 플래그 퍼블리셔
+        self.pub_flag = self.create_publisher(Bool, '/person_detected', 10)
 
         self.get_logger().info(f'person_detector started. image={self.topic_image}, ROI={self.roi_mode}')
 
@@ -141,7 +145,7 @@ class PersonDetector(Node):
         if self.roi_mode == 'full':
             y0, y1 = 0, h
         elif self.roi_mode == 'bottom':
-            y0, y1 = int(h * 0.60), h       # 하단 40%
+            y0, y1 = int(h * 0.60), h
         elif self.roi_mode == 'middle':
             y0, y1 = int(h * 0.35), int(h * 0.75)
         else:  # custom
@@ -154,25 +158,29 @@ class PersonDetector(Node):
         roi = frame[y0:y1, :]
         return roi, (y0, y1, w, h)
 
+    # [ADDED] 상태→Bool 변환 (SLOW/STOP이면 True)
+    def state_to_flag(self, state: str) -> bool:
+        return state in ('SLOW', 'STOP')
+
+    # [ADDED] 플래그 발행
+    def publish_flag(self):
+        msg = Bool()
+        msg.data = self.state_to_flag(self.state)
+        self.pub_flag.publish(msg)
+
     # ---------- 메인 콜백 ----------
     def image_cb(self, msg: Image):
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-
             roi, (y0, y1, w, h) = self.get_roi(frame)
 
             hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
             mask = cv2.inRange(hsv, self.lower_pink, self.upper_pink)
 
-            # (선택) 노이즈 처리
-            # kernel = np.ones((3,3), np.uint8)
-            # mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
-            # mask = cv2.dilate(mask, kernel, iterations=1)
-
             pink_area = int(cv2.countNonZero(mask))
             self.get_logger().info(f'핑크 영역(ROI): {pink_area} | state={self.state}')
 
-            # --- 상태 결정(히스테리시스 + 디바운스) ---
+            # --- 상태 결정 ---
             next_state = self.state
             if self.state != 'STOP' and pink_area >= self.area_stop:
                 self.trigger_cnt += 1; self.release_cnt = 0
@@ -207,15 +215,16 @@ class PersonDetector(Node):
                 self.state = next_state
                 self.trigger_cnt = 0
                 self.release_cnt = 0
+                self.publish_flag()  # [ADDED] 상태 바뀔 때 즉시 발행
 
-            # --- 퍼블리시 정책 ---
-            # GO: 아무것도 발행하지 않음(자동주행이 통과)
-            # SLOW/STOP: /person_cmd_vel로 짧게 반복 발행(override 확실)
-            if self.state == 'STOP':
-                self.burst_publish(0.0)
-            elif self.state == 'SLOW':
-                self.burst_publish(self.v_slow)
-            # else: GO → pass
+            # [ADDED] 매 프레임 현재 상태도 발행(유실 방지)
+            self.publish_flag()
+
+            # --- 기존 속도 퍼블리시 정책(비활성 권장) ---
+            # if self.state == 'STOP':
+            #     self.burst_publish(0.0)
+            # elif self.state == 'SLOW':
+            #     self.burst_publish(self.v_slow)
 
             # 디버깅 뷰
             vis = frame.copy()
@@ -227,14 +236,15 @@ class PersonDetector(Node):
         except Exception as e:
             self.get_logger().error(f'이미지 콜백 오류: {e}')
 
-    # 짧게 여러 번 내보내서 MUX override 보장
+    # (선택) 짧게 여러 번 내보내는 함수 — 지금은 사용 안 함
     def burst_publish(self, linear_x: float, repeats: int = 5, dt: float = 0.03):
         msg = Twist()
         msg.linear.x = float(linear_x)
         msg.angular.z = 0.0
-        for _ in range(repeats):
-            self.pub_person.publish(msg)
-            time.sleep(dt)
+        # if 사용 시:
+        # for _ in range(repeats):
+        #     self.pub_person.publish(msg)
+        #     time.sleep(dt)
 
 def main(args=None):
     rclpy.init(args=args)
@@ -246,4 +256,3 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-

@@ -116,6 +116,27 @@ class ControlLane(Node):
             self.callback_dashed_line,
             1
         )
+        # ---------------------------------------------------------------------
+        # 추가: 사람 감지 플래그(/person_detected) 구독 + 상태 변수
+        #  - person_detector.py가 보내는 Bool(True=사람 영향 있음)을 받아서
+        #    최종 퍼블리시 직전에 0속도 게이팅에 활용
+        # ---------------------------------------------------------------------
+        self.person_detected = False
+        self.sub_person_flag = self.create_subscription(
+            Bool,
+            '/person_detected',
+            self.cb_person_flag,
+            10
+        )
+    # -------------------------------------------------------------------------
+    # 추가: /person_detected 콜백
+    #  - 단순히 내부 상태 변수(self.person_detected) 갱신
+    # -----------------------------ㅊ--------------------------------------------
+    def cb_person_flag(self, msg: Bool):
+        self.person_detected = bool(msg.data)
+        # 디버깅 원하면 아래 로그를 잠깐 켜도 좋음
+        # self.get_logger().info(f'[person_detected] {self.person_detected}')
+    # -----------------------------ㅊ--------------------------------------------
 
     def callback_dashed_line(self, msg):
         if msg.data and not self.changing_lane:
@@ -168,6 +189,18 @@ class ControlLane(Node):
         #     return
         # if self.avoid_active:
         #     return
+        # ---------------------------------------------------------------------
+        # 추가: 최우선 안전 규칙 — 사람 감지 시 즉시 정지 후 리턴
+        #  - 어떤 상황(회피/신호등/차선변경)보다도 우선
+        # ---------------------------------------------------------------------
+        if self.person_detected:
+            stop = Twist()
+            stop.linear.x = 0.0
+            stop.angular.z = 0.0
+            self.pub_cmd_vel.publish(stop)
+            return
+        # ---------------------------------------------------------------------
+
 
         center = desired_center.data
 
@@ -221,8 +254,29 @@ class ControlLane(Node):
         twist.angular.z = -max(angular_z, -2.0) if angular_z < 0 else -min(angular_z, 2.0)
         self.pub_cmd_vel.publish(twist)
 
+        # ---------------------------------------------------------------------
+        # 추가: 퍼블리시 직전 한 번 더 게이팅
+        #  - 콜백 처리 중간에 /person_detected가 True로 바뀌는 레이스 컨디션 방지
+        # ---------------------------------------------------------------------
+        if self.person_detected:
+            stop = Twist()
+            self.pub_cmd_vel.publish(stop)
+            return
+        # ---------------------------------------------------------------------
+
+        self.pub_cmd_vel.publish(twist)
+
     def callback_avoid_cmd(self, twist_msg):
         self.avoid_twist = twist_msg
+        # ---------------------------------------------------------------------
+        # 추가: 회피 모드 중이라도 사람 감지면 무조건 정지
+        #  - 회피보다 사람 안전을 최우선으로 둠
+        # ---------------------------------------------------------------------
+        if self.person_detected:
+            stop = Twist()
+            self.pub_cmd_vel.publish(stop)
+            return
+        # ---------------------------------------------------------------------
 
         if self.avoid_active:
             self.pub_cmd_vel.publish(self.avoid_twist)
