@@ -24,8 +24,10 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
+    pkg_share = get_package_share_directory('turtlebot3_autorace_detect')
+
     detect_param = os.path.join(
-        get_package_share_directory('turtlebot3_autorace_detect'),
+        pkg_share,
         'param',
         'lane',
         'lane.yaml'
@@ -58,6 +60,30 @@ def generate_launch_description():
             ('/detect/image_output_sub2/compressed', '/detect/image_yellow_lane_marker/compressed')
         ]
     )
+    param_file = os.path.join(pkg_share, 'param', 'traffic_light', 'traffic_light.yaml')
+
+    detect_traffic_light_node = Node(
+        package='turtlebot3_autorace_detect',
+        executable='detect_traffic_light',
+        name='detect_traffic_light',
+        output='screen',
+        parameters=[
+            param_file,
+            {'is_calibration_mode': True}
+        ],
+        remappings=[
+            ('/detect/image_input', '/camera/image_compensated'),
+            ('/detect/image_input/compressed', '/camera/image_compensated/compressed'),
+            ('/detect/image_output', '/detect/image_traffic_light'),
+            ('/detect/image_output/compressed', '/detect/image_traffic_light/compressed'),
+            ('/detect/image_output_sub1', '/detect/image_red_light'),
+            ('/detect/image_output_sub1/compressed', '/detect/image_red_light/compressed'),
+            ('/detect/image_output_sub2', '/detect/image_yellow_light'),
+            ('/detect/image_output_sub2/compressed', '/detect/image_yellow_light/compressed'),
+            ('/detect/image_output_sub3', '/detect/image_green_light'),
+            ('/detect/image_output_sub3/compressed', '/detect/image_green_light/compressed'),
+        ],
+    )
 
     control_node = Node(
             package='turtlebot3_autorace_mission',
@@ -82,6 +108,8 @@ def generate_launch_description():
     return LaunchDescription([
         avoid_object_node,
         detect_lane_node,
-        control_node,
+        detect_traffic_light_node,
         person_node,
+        control_node,
+
     ])
