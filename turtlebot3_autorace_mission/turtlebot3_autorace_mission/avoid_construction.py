@@ -149,7 +149,7 @@ class AvoidConstruction(Node):
 
     def lidar_callback(self, msg):
         self.lidar_points = self.convert_laserscan_to_points(msg)
-        self.visualization(self.lidar_points)
+        # self.visualization(self.lidar_points)
 
     def convert_laserscan_to_points(self, msg):
         angles = np.linspace(msg.angle_min, msg.angle_max, len(msg.ranges))
@@ -356,8 +356,8 @@ class AvoidConstruction(Node):
                 x = int(pt[0] * scale + center[0])
                 y = int(-pt[1] * scale + center[1])
                 cv2.circle(img_vis, (x, y), 2, (0, 255, 0), -1)
-        cv2.imshow('Cluster Points & Danger Zone', img_vis)
-        cv2.waitKey(1)
+        # cv2.imshow('Cluster Points & Danger Zone', img_vis)
+        # cv2.waitKey(1)
 
     def normalize_angle(self, angle):
         while angle > math.pi:
