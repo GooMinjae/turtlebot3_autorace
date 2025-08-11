@@ -283,8 +283,7 @@ class ControlLane(Node):
             self.is_stopped = False
 
         # 🔴 RED + 정지선 감지 또는 사람 Stop → 정지 상태 진입 (한 번만 세팅)
-        if not self.is_stopped and 
-            (self.label == "RED" and self.stop_line_state == True)
+        if not self.is_stopped and (self.label == "RED" and self.stop_line_state == True):
             self.get_logger().info("🔴 RED/Human Stop → 정지 상태 진입")
             self.is_stopped = True
 
