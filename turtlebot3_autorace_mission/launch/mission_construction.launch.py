@@ -61,7 +61,22 @@ def generate_launch_description():
         ]
     )
     param_file = os.path.join(pkg_share, 'param', 'traffic_light', 'traffic_light.yaml')
-
+    detect_speed_node = Node(
+        package='turtlebot3_autorace_detect',
+        executable='detect_tunnel_sign',
+        name='detect_tunnel_sign',
+        output='screen',
+        parameters=[
+            param_file,
+            {'is_calibration_mode': True}
+        ],
+        remappings=[
+            ('/detect/image_input', '/camera/image_compensated'),
+            ('/detect/image_input/compressed', '/camera/image_compensated/compressed'),
+            ('/detect/image_output', '/detect/image_traffic_sign'),
+            ('/detect/image_output/compressed', '/detect/image_traffic_sign/compressed'),
+        ],
+    )
     detect_traffic_light_node = Node(
         package='turtlebot3_autorace_detect',
         executable='detect_traffic_light',
@@ -123,6 +138,7 @@ def generate_launch_description():
         detect_traffic_light_node,
         person_node,
         detect_sign_node,
+        detect_speed_node,
         control_node,
 
     ])
