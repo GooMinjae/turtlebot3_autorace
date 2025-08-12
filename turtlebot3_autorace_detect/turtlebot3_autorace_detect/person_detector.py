@@ -71,6 +71,8 @@ class PersonDetector(Node):
         self.get_logger().info('PersonDetector ready (YOLO only).')
 
     def get_roi(self, frame):
+        self.get_logger().info('get_rois')
+
         """ROI 영역을 리턴: (roi_img, (y0, y1, w, h))"""
         h, w = frame.shape[:2]
         if self.roi_mode == 'bottom':
@@ -86,10 +88,14 @@ class PersonDetector(Node):
 
     def publish_flag(self):
         msg = Bool()
+        self.get_logger().info('GO')
+
         msg.data = (self.state != 'GO')  # STOP 또는 SLOW 이면 True
         self.pub_flag.publish(msg)
 
     def _draw_roi(self, img, y0, y1, color=(0, 255, 255)):
+        self.get_logger().info('draw_roi')
+
         h, w = img.shape[:2]
         cv2.rectangle(img, (0, y0), (w - 1, y1 - 1), color, 2)
 
@@ -98,6 +104,8 @@ class PersonDetector(Node):
         vis = frame_bgr.copy()
         roi_img, (y0, y1, w, h) = self.get_roi(frame_bgr)
         self._draw_roi(vis, y0, y1)
+        self.get_logger().info('annotate_and_publish')
+
 
         for (x1, y1_box, x2, y2_box, conf) in dets_in_roi:
             cv2.rectangle(vis, (x1, y1_box), (x2, y2_box), (0, 255, 0), 2)
@@ -122,6 +130,7 @@ class PersonDetector(Node):
 
         roi_img, (y0, y1, w, h) = self.get_roi(frame_bgr)
         roi_area = max(1, roi_img.shape[0] * roi_img.shape[1])
+        self.get_logger().info('yolo_person_in_roi')
 
         try:
             results = self.yolo_model(
@@ -169,6 +178,7 @@ class PersonDetector(Node):
     def image_cb(self, msg: Image):
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            self.get_logger().info('image_cb')
 
             # ROI 추출
             roi, (y0, y1, w, h) = self.get_roi(frame)
