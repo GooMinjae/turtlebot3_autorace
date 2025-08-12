@@ -445,39 +445,62 @@ class DetectLane(Node):
                 self.right_fitx, self.right_fit = self.sliding_windown(cv_white_lane, 'right')
                 self.mov_avg_right = np.array([self.right_fit])
 
+        # == ★ 안전한 이동평균(빈 배열/NaN 방지) ==
         MOV_AVG_LENGTH = 4
 
-        self.left_fit = np.array([
-            np.mean(self.mov_avg_left[::-1][:, 0][0:MOV_AVG_LENGTH]),
-            np.mean(self.mov_avg_left[::-1][:, 1][0:MOV_AVG_LENGTH]),
-            np.mean(self.mov_avg_left[::-1][:, 2][0:MOV_AVG_LENGTH])
-            ])
-        self.right_fit = np.array([
-            np.mean(self.mov_avg_right[::-1][:, 0][0:MOV_AVG_LENGTH]),
-            np.mean(self.mov_avg_right[::-1][:, 1][0:MOV_AVG_LENGTH]),
-            np.mean(self.mov_avg_right[::-1][:, 2][0:MOV_AVG_LENGTH])
-            ])
+        def _safe_avg(mov, prev):
+            if mov.shape[0] == 0:
+                return prev
+            take = mov[::-1][:MOV_AVG_LENGTH]
+            fit = np.mean(take, axis=0)
+            if not np.all(np.isfinite(fit)):
+                return prev
+            return fit
 
-        if self.mov_avg_left.shape[0] > 1000:
-            self.mov_avg_left = self.mov_avg_left[0:MOV_AVG_LENGTH]
+        if not hasattr(self, 'left_fit'):
+            self.left_fit = None
+        if not hasattr(self, 'right_fit'):
+            self.right_fit = None
 
+        self.left_fit  = _safe_avg(self.mov_avg_left,  self.left_fit)
+        self.right_fit = _safe_avg(self.mov_avg_right, self.right_fit)
+
+        # mov_avg 길이 관리(뒤쪽 최근값만 유지)
+        if self.mov_avg_left.shape[0]  > 1000:
+            self.mov_avg_left  = self.mov_avg_left[-MOV_AVG_LENGTH:]
         if self.mov_avg_right.shape[0] > 1000:
-            self.mov_avg_right = self.mov_avg_right[0:MOV_AVG_LENGTH]
+            self.mov_avg_right = self.mov_avg_right[-MOV_AVG_LENGTH:]
 
+        # == (기존) 시각화/센터 계산 로직 호출 ==
         self.make_lane(cv_image, white_fraction, yellow_fraction)
 
-        found, stop_y, dbg_img, conf = detect_stop_curve_using_lanes(
-            cv_image, self.left_fitx, self.right_fitx,
-            roi_height_ratio=0.60,     # 필요시 0.55~0.70 튜닝
-            coverage_th=0.30,          # 더 느슨하게 하려면 0.28~0.34
-            min_band_thickness=4       # 3~6 사이에서 조절
-        )
-        self.pub_stop_line.publish(Bool(data=found))
-        # 디버그 보고 싶으면 퍼블리셔 하나 더:
-        # self.pub_stop_dbg.publish(self.cvBridge.cv2_to_compressed_imgmsg(dbg_img, 'jpg'))
-        if conf > 0.3:
-            self.get_logger().info(f"[STOP curve] y={stop_y} conf={conf:.2f}")
+        # == ★ 정지선 검출: 양쪽 차선이 유효할 때만 ==
+        def _valid_x(arr):
+            return isinstance(arr, np.ndarray) and arr.size > 0 and np.all(np.isfinite(arr))
 
+        have_leftx  = _valid_x(getattr(self, 'left_fitx',  None))
+        have_rightx = _valid_x(getattr(self, 'right_fitx', None))
+
+        found = False
+        conf = 0.0
+
+        if (white_fraction > BASE_FRACTION and yellow_fraction > BASE_FRACTION
+            and have_leftx and have_rightx):
+
+            found, stop_y, dbg_img, conf = detect_stop_curve_using_lanes(
+                cv_image, self.left_fitx, self.right_fitx,
+                roi_height_ratio=0.60, coverage_th=0.30, min_band_thickness=4
+            )
+            # ★ conf NaN 방어
+            if not np.isfinite(conf):
+                conf = 0.0
+
+            self.pub_stop_line.publish(Bool(data=found))
+            if found and conf > 0.3:
+                self.get_logger().info(f"[STOP curve] y={stop_y} conf={conf:.2f}")
+        else:
+            # 한쪽이라도 불확실하면 정지선 False 퍼블리시
+            self.pub_stop_line.publish(Bool(data=False))
 
     def maskWhiteLane(self, image):
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
@@ -608,6 +631,32 @@ class DetectLane(Node):
         x = nonzerox[lane_inds]
         y = nonzeroy[lane_inds]
 
+        """ 디버깅 시도
+        # # ✅ 안전장치: 점 개수/분산 체크
+        # if x.size < 20 or np.ptp(y) < 40:     # 개수와 y범위(높이) 조건
+        #     # 직전 계수가 있으면 그걸 유지, 없으면 sliding으로 복구
+        #     if hasattr(self, "lane_fit_bef"):
+        #         lane_fit = self.lane_fit_bef
+        #     else:
+        #         raise ValueError("insufficient points")
+
+        # else:
+        #     # with warnings.catch_warnings():
+        #     #     warnings.simplefilter('error', np.RankWarning)  # RankWarning을 예외로
+        #     try:
+        #         lane_fit = np.polyfit(y, x, 2)
+        #     except np.RankWarning:
+        #         # 이전 계수로 폴백 (없으면 예외 발생 → 상위에서 sliding 사용)
+        #         if hasattr(self, "lane_fit_bef"):
+        #             lane_fit = self.lane_fit_bef
+        #         else:
+        #             raise
+
+        # self.lane_fit_bef = lane_fit  # 최신 계수 저장
+
+        # ploty = np.linspace(0, image.shape[0]-1, image.shape[0])
+        # lane_fitx = lane_fit[0]*ploty**2 + lane_fit[1]*ploty + lane_fit[2]
+        """
         lane_fit = np.polyfit(y, x, 2)
 
         ploty = np.linspace(0, image.shape[0] - 1, image.shape[0])
