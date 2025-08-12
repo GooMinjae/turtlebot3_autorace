@@ -45,9 +45,9 @@ class PersonDetector(Node):
         self.release_cnt = 0
 
         # 구독/퍼블리시
-        self.sub = self.create_subscription(Image, self.topic_image, self.image_cb, 10)
+        self.sub = self.create_subscription(Image, self.topic_image, self.image_cb, 1)
         self.pub_flag = self.create_publisher(Bool, '/person_detected', 1)
-        self.pub_debug_img = self.create_publisher(Image, '/person_detector/image_annotated', 10)
+        self.pub_debug_img = self.create_publisher(Image, '/person_detector/image_annotated', 1)
 
         # [YOLO] 모델 로딩
         self.yolo_model = None
