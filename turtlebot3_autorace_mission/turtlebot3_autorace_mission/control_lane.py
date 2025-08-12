@@ -28,23 +28,14 @@ import time
 
 
 class ControlLane(Node):
-    def publish_cmd(self, twist):
-        """Store the latest desired Twist; actual publish happens in control_step timer."""
-        self._pending_twist = twist
-        return
-
 
     def __init__(self):
         super().__init__('control_lane')
-        # === Unified control loop ===
-        self._pending_twist = None
-        self.control_timer = self.create_timer(0.05, self.control_step)
-
         # === 가속 제어 상태 ===
         self.current_speed = 0.07   # 시작 속도
         self.max_speed     = 0.2   # 최대 속도(원하면 0.25~0.3)
         self.min_speed     = 0.05   # 🚀 최소 속도 지정
-        self.accel_step    = 0.005  # 콜백당 가속량
+        self.accel_step    = 0.002  # 콜백당 가속량
         self.decel_step    = 0.01  # 콜백당 감속량(조금 더 크게)
         self.yawrate_ok    = 0.11   # |ωz| 임계(작을수록 직진일 때만 가속)
         self.error_ok_px   = 50.0   # 차선중심 오차 허용 픽셀
@@ -91,7 +82,7 @@ class ControlLane(Node):
         # )
         self.sub_lane = self.create_subscription(
             Float64,
-            '/detect/lane',
+            '/control/lane',
             self.callback_follow_lane,
             1
         )
@@ -186,7 +177,7 @@ class ControlLane(Node):
         twist = Twist()
         twist.linear.x = 0.0
         twist.angular.z = 0.0
-        self.publish_cmd(twist)
+        self.pub_cmd_vel.publish(twist)
     # -------------------------------------------------------------------------
     # 추가: /person_detected 콜백
     #  - 단순히 내부 상태 변수(self.person_detected) 갱신
@@ -205,15 +196,15 @@ class ControlLane(Node):
         # 멈춤 상태면 무조건 0으로 오버라이드
         if self.is_stopped:
             zero = Twist()
-            self.publish_cmd(zero)
+            self.pub_cmd_vel.publish(zero)
             return
-        self.publish_cmd(twist)
+        self.pub_cmd_vel.publish(twist)
 
     def callback_avoid_cmd(self, twist_msg):
         self.avoid_twist = twist_msg
 
         if self.avoid_active:
-            self.publish_cmd(self.avoid_twist)
+            self.pub_cmd_vel.publish(self.avoid_twist)
 
     def callback_dashed_line(self, msg):
         if (msg.data in ["right", "left"]) and not self.changing_lane:
@@ -271,7 +262,7 @@ class ControlLane(Node):
         #     twist = Twist()
         #     twist.linear.x = 0.0
         #     twist.angular.z = 0.0
-        #     self.publish_cmd(twist)
+        #     self.pub_cmd_vel.publish(twist)
         #     self.get_logger().warn("lane_state == 2 (both lanes): STOP.")
         #     return
         # if self.avoid_active:
@@ -284,7 +275,7 @@ class ControlLane(Node):
             stop = Twist()
             stop.linear.x = 0.0
             stop.angular.z = 0.0
-            self.publish_cmd(stop)
+            self.pub_cmd_vel.publish(stop)
             return
         # ---------------------------------------------------------------------
 
@@ -385,20 +376,20 @@ class ControlLane(Node):
             twist = Twist()
             twist.linear.x = 0.0
             twist.linear.y = 0.0
-            self.publish_cmd(twist)
+            self.pub_cmd_vel.publish(twist)
             return
         if self.sign == "km_50":
             twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)) *5
         # elif "intersection" == self.inter_sign:
         #     twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05))/2
         else:
-            twist.linear.x = min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)
+            twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)) * 2
         twist.angular.z = -max(angular_z, -2.0) if angular_z < 0 else -min(angular_z, 2.0)
-        self.publish_cmd(twist)
+        self.pub_cmd_vel.publish(twist)
 
         # ---------------------------------------------------------------------
 
-        # self.publish_cmd(twist)
+        # self.pub_cmd_vel.publish(twist)
 
     # def callback_avoid_cmd(self, twist_msg):
     #     self.avoid_twist = twist_msg
@@ -408,12 +399,12 @@ class ControlLane(Node):
     #     # ---------------------------------------------------------------------
     #     if self.person_detected:
     #         stop = Twist()
-    #         self.publish_cmd(stop)
+    #         self.pub_cmd_vel.publish(stop)
     #         return
     #     # ---------------------------------------------------------------------
 
     #     if self.avoid_active:
-    #         self.publish_cmd(self.avoid_twist)
+    #         self.pub_cmd_vel.publish(self.avoid_twist)
 
     def callback_avoid_active(self, bool_msg):
         self.avoid_active = bool_msg.data
@@ -425,44 +416,9 @@ class ControlLane(Node):
     def shut_down(self):
         self.get_logger().info('Shutting down. cmd_vel will be 0')
         twist = Twist()
-        self.publish_cmd(twist)
+        self.pub_cmd_vel.publish(twist)
 
 
-
-    def control_step(self):
-        """Single output loop with priority arbitration."""
-        # 1) Person detected => full stop
-        if getattr(self, 'person_detected', False):
-            stop = Twist()
-            stop.linear.x = 0.0
-            stop.angular.z = 0.0
-            self.pub_cmd_vel.publish(stop)
-            return
-
-        # 2) Traffic light + stop line => stop
-        if getattr(self, 'label', 'NONE') == 'RED' and getattr(self, 'stop_line_state', False):
-            stop = Twist()
-            stop.linear.x = 0.0
-            stop.angular.z = 0.0
-            self.pub_cmd_vel.publish(stop)
-            return
-
-        # 3) Avoidance active => use avoidance twist
-        if getattr(self, 'avoid_active', False) and getattr(self, 'avoid_twist', None) is not None:
-            self.pub_cmd_vel.publish(self.avoid_twist)
-            return
-
-        # 4) Default: use the most recent pending twist from lane following
-        if getattr(self, '_pending_twist', None) is not None:
-            self.pub_cmd_vel.publish(self._pending_twist)
-            return
-
-        # 5) Fallback: publish zero to be safe
-        zero = Twist()
-        zero.linear.x = 0.0
-        zero.angular.z = 0.0
-        self.pub_cmd_vel.publish(zero)
-        return
 def main(args=None):
     rclpy.init(args=args)
     node = ControlLane()
