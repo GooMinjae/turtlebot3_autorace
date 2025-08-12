@@ -165,6 +165,9 @@ class DetectSign(Node):
         for m, n in matches_left:
             if m.distance < 0.7*n.distance:
                 good_left.append(m)
+
+        detected = False  # 감지 플래그
+
         if len(good_left) > MIN_MATCH_COUNT:
             src_pts = np.float32([kp1[m.queryIdx].pt for m in good_left]).reshape(-1, 1, 2)
             dst_pts = np.float32([
@@ -178,37 +181,39 @@ class DetectSign(Node):
             if mse < MIN_MSE_DECISION:
                 msg_sign = String()
                 msg_sign.data = "left"
-
                 self.pub_sign.publish(msg_sign)
                 self.get_logger().info('Detect left sign')
                 image_out_num = 3
+                detected = True  # 왼쪽 감지됨
         else:
             matches_left = None
 
 
-        good_right = []
-        for m, n in matches_right:
-            if m.distance < 0.6*n.distance:
-                good_right.append(m)
-        if len(good_right) > MIN_MATCH_COUNT:
-            src_pts = np.float32([kp1[m.queryIdx].pt for m in good_right]).reshape(-1, 1, 2)
-            dst_pts = np.float32([
-                self.kp_right[m.trainIdx].pt for m in good_right
-            ]).reshape(-1, 1, 2)
+        # 오른쪽 표지판 검사 (왼쪽이 안 잡혔을 때만)
+        if not detected:
+            good_right = []
+            for m, n in matches_right:
+                if m.distance < 0.6*n.distance:
+                    good_right.append(m)
 
-            M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-            matches_right = mask.ravel().tolist()
+            if len(good_right) > MIN_MATCH_COUNT:
+                src_pts = np.float32([kp1[m.queryIdx].pt for m in good_right]).reshape(-1, 1, 2)
+                dst_pts = np.float32([
+                    self.kp_right[m.trainIdx].pt for m in good_right
+                ]).reshape(-1, 1, 2)
 
-            mse = self.fnCalcMSE(src_pts, dst_pts)
-            if mse < MIN_MSE_DECISION:
-                msg_sign = String()
-                msg_sign.data = "right"
+                M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+                matches_right = mask.ravel().tolist()
 
-                self.pub_sign.publish(msg_sign)
-                self.get_logger().info('Detect right sign')
-                image_out_num = 4
-        else:
-            matches_right = None
+                mse = self.fnCalcMSE(src_pts, dst_pts)
+                if mse < MIN_MSE_DECISION:
+                    msg_sign = String()
+                    msg_sign.data = "right"
+                    self.pub_sign.publish(msg_sign)
+                    self.get_logger().info('Detect right sign')
+                    image_out_num = 4
+            else:
+                matches_right = None
 
 
         if image_out_num == 1:
