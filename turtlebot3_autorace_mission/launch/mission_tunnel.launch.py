@@ -56,7 +56,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        avoid_object_node,
+        # avoid_object_node,
         # detect_lane_node,
         # detect_traffic_light_node,
         person_node,
