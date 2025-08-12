@@ -118,13 +118,13 @@ class ControlLane(Node):
             1
         )
 
-        self.inter_sign="None"
-        self.sub_inter_sign = self.create_subscription(
-            String,
-            '/detect/inter_sign',
-            self.callback_inter_sign,
-            1
-        )
+        # self.inter_sign="None"
+        # self.sub_inter_sign = self.create_subscription(
+        #     String,
+        #     '/detect/inter_sign',
+        #     self.callback_inter_sign,
+        #     1
+        # )
 
 
         # PD control related variables
@@ -241,8 +241,8 @@ class ControlLane(Node):
     def callback_sign(self,msg):
         self.sign = msg.data
 
-    def callback_inter_sign(self,msg):
-        self.inter_sign = msg.data
+    # def callback_inter_sign(self,msg):
+    #     self.inter_sign = msg.data
 
 
     def callback_label(self, msg):
@@ -380,8 +380,8 @@ class ControlLane(Node):
             return
         if self.sign == "km_50":
             twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)) *5
-        elif "intersection" == self.inter_sign:
-            twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05))/2
+        # elif "intersection" == self.inter_sign:
+        #     twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05))/2
         else:
             twist.linear.x = min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)
         twist.angular.z = -max(angular_z, -2.0) if angular_z < 0 else -min(angular_z, 2.0)
