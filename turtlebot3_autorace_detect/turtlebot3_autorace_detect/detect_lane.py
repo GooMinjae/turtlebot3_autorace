@@ -165,6 +165,7 @@ class DetectLane(Node):
     def __init__(self):
         super().__init__('detect_lane')
         self._stop_dbg = True
+        self.dash_dir = None
         self.subscription = self.create_subscription(
             CompressedImage,
             '/image_jpeg/compressed',
@@ -270,7 +271,7 @@ class DetectLane(Node):
             self.pub_image_lane = self.create_publisher(
                 Image, '/detect/image_output', 1
                 )
-        self.pub_dashed = self.create_publisher(Bool, '/detect/dashed_line', 1)
+        self.pub_dashed = self.create_publisher(String, '/detect/dashed_line', 1)
 
         self.sub_reset_dashed = self.create_subscription(
             Bool, '/detect/reset_dashed', self.cb_reset_dashed, 1
@@ -402,12 +403,21 @@ class DetectLane(Node):
 
         try:
             if not self.detect_dot_flag:
-                is_dashed = self.is_dashed_line(cv_white_lane, min_len=2, max_len=100, min_segments=2, std_threshold=25, visualize=False)
-                self.get_logger().warn(f"점선 인식 결과: {is_dashed}")
+                is_dashed, direction = self.is_dashed_line(
+                    cv_white_lane,
+                    min_len=6,        # 작은 조각도 통과
+                    max_len=140,      # 길어도 허용
+                    min_segments=2,   # 2조각이면 후보 인정
+                    std_threshold=60, # 간격 들쭉날쭉해도 통과
+                    visualize=False
+                )
+                # is_dashed, direction = self.is_dashed_line(cv_white_lane, min_len=2, max_len=100, min_segments=2, std_threshold=25, visualize=False)
+                self.get_logger().warn(f"점선 인식 결과: [{direction}] {is_dashed}")
                 if is_dashed:
                     self.detect_dot_flag = True
-                msg = Bool()
-                msg.data = is_dashed
+                    self.dash_dir = direction
+                msg = String()
+                msg.data = direction
                 self.pub_dashed.publish(msg)
 
         except Exception as e:
@@ -435,7 +445,7 @@ class DetectLane(Node):
                 self.right_fitx, self.right_fit = self.sliding_windown(cv_white_lane, 'right')
                 self.mov_avg_right = np.array([self.right_fit])
 
-        MOV_AVG_LENGTH = 5
+        MOV_AVG_LENGTH = 4
 
         self.left_fit = np.array([
             np.mean(self.mov_avg_left[::-1][:, 0][0:MOV_AVG_LENGTH]),
@@ -685,8 +695,10 @@ class DetectLane(Node):
         height, width = mask.shape
 
         # 좌/우 ROI 설정
-        roi_left = mask[int(height * 0.4):int(height * 0.95), int(width * 0.1):int(width * 0.45)]
-        roi_right = mask[int(height * 0.4):int(height * 0.95), int(width * 0.55):int(width * 0.9)]
+        # roi_left = mask[int(height * 0):int(height * 1), int(width * 0.1):int(width * 0.45)]
+        # roi_right = mask[int(height * 0):int(height * 1), int(width * 0.55):int(width * 0.9)]
+        roi_left  = mask[int(height*0.4):int(height*0.98), int(width*0.04):int(width*0.50)]
+        roi_right = mask[int(height*0.4):int(height*0.98), int(width*0.50):int(width*0.96)]
 
         left_result = self._check_dashed_roi(roi_left, min_len, max_len, min_segments, std_threshold, visualize, "LEFT")
         right_result = self._check_dashed_roi(roi_right, min_len, max_len, min_segments, std_threshold, visualize, "RIGHT")
@@ -697,10 +709,10 @@ class DetectLane(Node):
         elif right_result:
             res_dir = "right"
         else:
-            res_dir = None
+            res_dir = "None"
         self.get_logger().warn(f"점선 인식 결과: [{res_dir}]: {result}")
-        return result
-        # return result, res_dir
+        # return result
+        return result, res_dir
 
 
     def _check_dashed_roi(self, roi, min_len, max_len, min_segments, std_threshold, visualize, label="ROI"):
@@ -773,10 +785,10 @@ class DetectLane(Node):
             self.dashed_counter = {"LEFT": 0, "RIGHT": 0}
 
 
-        self.get_logger().info(f"yellow: {yellow_fraction}, white: {white_fraction}")
-        self.get_logger().info(
-            f"yellow_rel={self.reliability_yellow_line}, white_rel={self.reliability_white_line}"
-        )
+        # self.get_logger().info(f"yellow: {yellow_fraction}, white: {white_fraction}")
+        # self.get_logger().info(
+        #     f"yellow_rel={self.reliability_yellow_line}, white_rel={self.reliability_white_line}"
+        # )
 
         if yellow_fraction > BASE_FRACTION:
             pts_left = np.array([np.flipud(np.transpose(np.vstack([self.left_fitx, ploty])))])
@@ -817,22 +829,14 @@ class DetectLane(Node):
                     color=(0, 255, 255),
                     thickness=12
                     )
-                # self.sign = "NONE"
+                self.sign = "NONE"
 
                 # Draw the lane onto the warped blank image
                 cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
 
             if white_fraction > BASE_FRACTION and yellow_fraction <= BASE_FRACTION:
                 centerx = np.subtract(self.right_fitx, 280)
-                # if getattr(self, "prefer_left_lane", False):  # ← 왼쪽 변경 중이면
-                #     centerx = np.subtract(self.right_fitx, LANE_WIDTH * 2 // 2)  # 왼쪽 차선 추정 쪽으로 더 왼쪽
-                # else:
-                #     centerx = np.subtract(self.right_fitx, LANE_WIDTH)           # 기존 로직(오른쪽 차선 중심)
                 pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
-                # if self.sign == "left":
-                #     centerx = np.add(self.left_fitx, 280)
-                # self.sign = "NONE"
-
                 lane_state.data = 3
 
                 cv2.polylines(
@@ -845,10 +849,6 @@ class DetectLane(Node):
 
             if (white_fraction <= BASE_FRACTION and yellow_fraction > BASE_FRACTION) or self.sign == "left":
                 centerx = np.add(self.left_fitx, 280)
-                # if getattr(self, "prefer_left_lane", False):  # ← 왼쪽 변경 중이면
-                #     centerx = np.subtract(self.left_fitx, LANE_WIDTH)            # 노란선의 왼쪽(=왼쪽 차선 중심)
-                # else:
-                #     centerx = np.add(self.left_fitx, LANE_WIDTH)                 # 기존 로직(오른쪽 차선 중심)
                 pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
 
                 
@@ -864,10 +864,6 @@ class DetectLane(Node):
 
         elif (self.reliability_white_line <= 50 and self.reliability_yellow_line > 50)  or self.sign == "left":
             centerx = np.add(self.left_fitx, 280)
-            # if getattr(self, "prefer_left_lane", False):  # ← 왼쪽 변경 중이면
-            #     centerx = np.subtract(self.left_fitx, LANE_WIDTH)            # 노란선의 왼쪽(=왼쪽 차선 중심)
-            # else:
-            #     centerx = np.add(self.left_fitx, LANE_WIDTH)                 # 기존 로직(오른쪽 차선 중심)
             pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
 
             lane_state.data = 1
@@ -883,10 +879,6 @@ class DetectLane(Node):
 
         elif self.reliability_white_line > 50 and self.reliability_yellow_line <= 50:
             centerx = np.subtract(self.right_fitx, 280)
-            # if getattr(self, "prefer_left_lane", False):  # ← 왼쪽 변경 중이면
-            #     centerx = np.subtract(self.right_fitx, LANE_WIDTH * 2 // 2)  # 왼쪽 차선 추정 쪽으로 더 왼쪽
-            # else:
-            #     centerx = np.subtract(self.right_fitx, LANE_WIDTH)           # 기존 로직(오른쪽 차선 중심)
             pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
 
             lane_state.data = 3

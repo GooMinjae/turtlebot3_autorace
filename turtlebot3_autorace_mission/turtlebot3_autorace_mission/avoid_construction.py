@@ -28,7 +28,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool
-from std_msgs.msg import UInt8
+from std_msgs.msg import UInt8, String
 
 
 def euler_from_quaternion(msg):
@@ -91,7 +91,7 @@ class AvoidConstruction(Node):
         # dashed-line flag
         self.dashed_line = False
         self.dashed_sub = self.create_subscription(
-            Bool, '/detect/dashed_line', self.dashed_callback, 10
+            String, '/detect/dashed_line', self.dashed_callback, 10
         )
 
         # Publish
@@ -115,8 +115,8 @@ class AvoidConstruction(Node):
         self.lane_detected = False
 
         # Parameter settings
-        self.danger_distance = 0.5    # Danger zone y threshold (meters)
-        self.danger_width = 0.12       # Danger zone x width (meters)
+        self.danger_distance = 0.4    # Danger zone y threshold (meters)
+        self.danger_width = 0.10       # Danger zone x width (meters)
         self.speed = 0.03              # Forward speed during avoidance
 
         # PD control parameters (for turning)
