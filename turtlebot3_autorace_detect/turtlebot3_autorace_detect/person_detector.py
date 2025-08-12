@@ -29,9 +29,8 @@ class PersonDetector(Node):
 
         # ROI 방식
         self.roi_mode = 'custom'    # 'bottom' | 'center' | 'custom'
-        self.roi_y_start_ratio = 0.40
-        self.roi_y_end_ratio   = 0.80
-        # self.yolo_stop_on_any_person = False
+        self.roi_y_start_ratio = 0.35
+        self.roi_y_end_ratio   = 0.75
 
         # [YOLO] 사용 스위치 및 파라미터
         self.use_yolo = True               # YOLO 사용 여부 (False면 색상 방식으로 복귀)
@@ -39,7 +38,7 @@ class PersonDetector(Node):
         self.yolo_person_class_id = 0      # Ultralytics 모델에서 'person' 클래스 ID(일반적으로 0)
         self.yolo_box_area_stop_ratio = 0.02   # ROI 면적 대비 person box 합계 면적이 이 비율 이상이면 STOP
         self.yolo_box_area_slow_ratio = 0.01   # ROI 면적 대비 person box 합계 면적이 이 비율 이상이면 SLOW
-        self.yolo_stop_on_any_person = False    # True면 박스 면적 상관없이 "사람 존재"만으로도 trigger 판단(ROI 내)
+        self.yolo_stop_on_any_person = True    # True면 박스 면적 상관없이 "사람 존재"만으로도 trigger 판단(ROI 내)
         
         # # [NEAR] 근접 게이트: '로봇 바로 앞'에서만 유효로 처리
         # self.near_gate = True
