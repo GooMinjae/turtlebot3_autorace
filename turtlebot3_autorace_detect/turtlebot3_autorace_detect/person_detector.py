@@ -25,12 +25,12 @@ class PersonDetector(Node):
 
         # ROI (로봇 앞쪽만 보기)
         self.roi_mode = 'custom'    # 'bottom' | 'center' | 'custom'
-        self.roi_y_start_ratio = 0.50
-        self.roi_y_end_ratio   = 0.85
+        self.roi_y_start_ratio = 0.45
+        self.roi_y_end_ratio   = 0.80
 
         # [YOLO] 파라미터
         self.use_yolo = True
-        self.yolo_conf = 0.5
+        self.yolo_conf = 0.7
         self.yolo_person_class_id = 0
         self.yolo_box_area_stop_ratio = 0.05   # ROI 면적 대비 person 박스 합계가 이 비율↑면 STOP
         self.yolo_box_area_slow_ratio = 0.02   # ROI 면적 대비 person 박스 합계가 이 비율↑면 SLOW
