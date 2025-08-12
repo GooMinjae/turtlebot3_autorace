@@ -166,7 +166,7 @@ class ControlLane(Node):
             Bool,
             '/person_detected',
             self.cb_person_flag,
-            10
+            1
         )
         self.values = []
 
