@@ -40,6 +40,39 @@ class ControlLane(Node):
         self.yawrate_ok    = 0.11   # |ωz| 임계(작을수록 직진일 때만 가속)
         self.error_ok_px   = 50.0   # 차선중심 오차 허용 픽셀
 
+        # 차선 변경 FSM
+        self.lc_active = False
+        self.lc_stage  = 0          # 0: 회전, 1: 직진, 2: 복귀회전
+        self.lc_dir    = None       # "left" / "right"
+        self.lc_t0     = 0.0
+
+        # 시간/속도 파라미터(필요시 조절)
+        self.LC_TURN_RATE     = 0.45   # rad/s
+        self.LC_FWD_SPEED     = 0.06  # m/s
+        self.LC_TURN_TIME     = 0.7   # s
+        self.LC_STRAIGHT_TIME = 2.0   # s
+        self.LC_TURNBACK_TIME = 0.8   # s
+
+        # 장애물 감지 on 시각 기록
+        self.avoid_on_time = 0.0
+
+        # 점선 트리거 래치
+        self.changing_lane = False
+        self.dashed_detected  = False
+        self.dashed_dir       = None
+        self.dashed_time      = 0.0
+        self.DASH_FRESH_SEC   = 8.0   # 점선 감지 후 4초 이내면 유효
+
+        self.yellow_roi_hit = False
+        self.white_roi_hit  = False
+
+        self.sub_yroi = self.create_subscription(
+            Bool, '/detect/yellow_roi_hit', lambda m: setattr(self, 'yellow_roi_hit', bool(m.data)), 1
+        )
+        self.sub_wroi = self.create_subscription(
+            Bool, '/detect/white_roi_hit',  lambda m: setattr(self, 'white_roi_hit',  bool(m.data)), 1
+        )
+
         # === Odom 구독 ===
         self.odom_lin_x = 0.0
         self.odom_yaw_z = 0.0
@@ -145,10 +178,7 @@ class ControlLane(Node):
             1
         )
 
-        self.changing_lane = False
-        self.bias = 0
         self.last_error = 0
-        self.dashed_detected = False
 
         self.sub_dashed = self.create_subscription(
             String,
@@ -206,13 +236,21 @@ class ControlLane(Node):
         if self.avoid_active:
             self.pub_cmd_vel.publish(self.avoid_twist)
 
+    def _start_lane_change(self, direction: str):
+        self.get_logger().info(f"🔄 차선변경 FSM 시작: {direction}")
+        self.lc_active = True
+        self.lc_stage  = 0
+        self.lc_dir    = direction            # "left" / "right"
+        self.lc_t0     = time.time()
+
     def callback_dashed_line(self, msg):
-        if (msg.data in ["right", "left"]) and not self.changing_lane:
-            self.get_logger().info("🔄 점선 감지됨! 차선 변경 시작")
-            self.changing_lane = True
+        if msg.data in ["left", "right"]:
             self.dashed_detected = True
             self.dashed_dir = msg.data
-            # self.bias = -150
+            self.dashed_time = time.time()
+            self.get_logger().info(f"점선 감지 래치: {self.dashed_dir}")
+            # 순서 강제: 여기서는 절대 시작하지 않음
+
 
 
     def callback_lane_state(self, msg):
@@ -257,16 +295,6 @@ class ControlLane(Node):
         If avoidance mode is enabled, lane following control is ignored.
 
         """
-        # ▶ 우선 조건: 양쪽 차선이면 정지
-        # if self.lane_state == 2:
-        #     twist = Twist()
-        #     twist.linear.x = 0.0
-        #     twist.angular.z = 0.0
-        #     self.pub_cmd_vel.publish(twist)
-        #     self.get_logger().warn("lane_state == 2 (both lanes): STOP.")
-        #     return
-        # if self.avoid_active:
-        #     return
         # ---------------------------------------------------------------------
         # 추가: 최우선 안전 규칙 — 사람 감지 시 즉시 정지 후 리턴
         #  - 어떤 상황(회피/신호등/차선변경)보다도 우선
@@ -279,9 +307,6 @@ class ControlLane(Node):
             return
         # ---------------------------------------------------------------------
 
-        # center = desired_center.data
-        # center = desired_center.data + self.bias
-
         # 2) 속도 0 이후 '신호 대기' 상태 처리:
         #    빨간불이면 정지 유지, 빨간불 아니면 자동 재출발
         if self.wait_for_green:
@@ -293,38 +318,55 @@ class ControlLane(Node):
                 self._publish_stop()
                 return
 
-        # 차선 변경 로직
-        # === 차선 변경 중일 경우: 일정 시간동안 bias 유지 ===
-        # if self.dashed_detected:
-        if self.dashed_detected and self.avoid_active:
-            self.get_logger().info("점선 감지 → 차선 변경 시작")
-            if self.dashed_dir == "left":
-                self.bias = -150
-            elif self.dashed_dir == "right":
-                self.bias = 160
-            self.changing_lane = True
-            self.dashed_detected = False
+        # FSM 진행 중이면 회전→직진→복귀회전 순서로 수행하고, lane PID는 잠시 무시
+        if self.lc_active:
+            self.get_logger().info("START CHANGE LINE")
+            elapsed = time.time() - self.lc_t0
+            sgn = 1.0 if self.lc_dir == "left" else -1.0
+
+            twist = Twist()
+
+            if self.lc_stage == 0:
+                # 0) 첫 회전(바깥쪽으로)
+                twist.linear.x  = 0.0
+                twist.angular.z = sgn * self.LC_TURN_RATE
+                if elapsed >= self.LC_TURN_TIME:
+                    self.lc_stage = 1
+                    self.lc_t0 = time.time()
+
+            elif self.lc_stage == 1:
+                # 1) 직진
+                twist.linear.x  = self.LC_FWD_SPEED
+                twist.angular.z = 0.0
+
+                ready = False
+                if self.lc_dir == "left":
+                    ready = self.yellow_roi_hit         # 노란선이 중앙 ROI에 들어옴
+                else:  # "right"
+                    ready = self.white_roi_hit          # 흰선이 중앙 ROI에 들어옴
+
+                if ready:
+                    self.get_logger().info("ROI 히트 → 복귀 회전 단계로 전환")
+                    self.lc_stage = 2
+                    self.lc_t0 = time.time()
+
+            elif self.lc_stage == 2:
+                # # 2) 복귀 회전(원래 방향으로 되돌림)
+                # twist.linear.x  = 0.0
+                # twist.angular.z = -sgn * self.LC_TURN_RATE
+                # if elapsed >= self.LC_TURNBACK_TIME:
+                #     # 종료
+                self.lc_active = False
+                self.lc_stage = 0
+                self.lc_dir = None
+                self.get_logger().info("차선 변경 FSM 종료")
+
+            # 이 단계에서는 lane PID 대신 FSM 출력만 내보냄
+            self.publish_cmd(twist)
+            return
 
 
-        # # === 중심값 결정 ===
-        # if self.lane_state == 0 and self.changing_lane:
-        #     twist = Twist()
-        #     twist.linear.x = 0.06
-        #     twist.angular.z = 0.
-        #     self.pub_cmd_vel.publish(twist)
-        #     self.get_logger().warn("lane_state == 0: 직진")
-        #     return
-
-        if self.changing_lane:
-            if (self.lane_state == 1 and self.dashed_dir == "left") or (self.lane_state == 3 and self.dashed_dir == "right"):
-                # self.get_logger().info("lane_state == 1: 차선 변경 완료")
-                self.changing_lane = False
-                self.bias = 0
-                # self.pub_reset_dashed.publish(Bool(data=True))
-
-        # self.get_logger().info(f"{self.bias}")
-
-        center = desired_center.data + self.bias
+        center = desired_center.data
         error = center - 500
 
         Kp = 0.0025
@@ -361,7 +403,7 @@ class ControlLane(Node):
 
         # callback_follow_lane 안
         # 🟢 GREEN → 정지 상태 해제
-        if self.label == "GREEN":
+        if self.label != "RED":
             if self.is_stopped:
                 self.get_logger().info("🟢 GREEN detected → 주행 재개")
             self.is_stopped = False
@@ -389,36 +431,59 @@ class ControlLane(Node):
 
         # ---------------------------------------------------------------------
 
-        # self.pub_cmd_vel.publish(twist)
-
-    # def callback_avoid_cmd(self, twist_msg):
-    #     self.avoid_twist = twist_msg
-    #     # ---------------------------------------------------------------------
-    #     # 추가: 회피 모드 중이라도 사람 감지면 무조건 정지
-    #     #  - 회피보다 사람 안전을 최우선으로 둠
-    #     # ---------------------------------------------------------------------
-    #     if self.person_detected:
-    #         stop = Twist()
-    #         self.pub_cmd_vel.publish(stop)
-    #         return
-    #     # ---------------------------------------------------------------------
-
-    #     if self.avoid_active:
-    #         self.pub_cmd_vel.publish(self.avoid_twist)
-
     def callback_avoid_active(self, bool_msg):
+        prev = self.avoid_active
         self.avoid_active = bool_msg.data
-        # if self.avoid_active:
-        #     self.get_logger().info('Avoidance mode activated.')
-        # else:
-        #     self.get_logger().info('Avoidance mode deactivated. Returning to lane following.')
+        now = time.time()
+
+        # False -> True 되는 '순간'에만 검사/시작
+        if (not prev) and self.avoid_active:
+            self.avoid_on_time = now
+            if self.dashed_detected and (not self.lc_active):
+                dt = now - self.dashed_time  # 점선이 장애물보다 '먼저'여야 dt >= 0
+                self.get_logger().info(f"/avoid_active ↑, dt since dashed={dt:.2f}s (th={self.DASH_FRESH_SEC}s)")
+                if 0.0 <= dt <= self.DASH_FRESH_SEC:
+                    self._start_lane_change(self.dashed_dir)
+                else:
+                    self.get_logger().warn("순서/시간 조건 불충족 → 차선변경 시작 안함")
+            # 장애물이 먼저 들어와 켜진 상태에서, 나중에 점선이 들어와도 시작 안 함(설계 의도)
 
     def shut_down(self):
         self.get_logger().info('Shutting down. cmd_vel will be 0')
         twist = Twist()
-        self.pub_cmd_vel.publish(twist)
+        self.publish_cmd(twist)
 
 
+
+    def control_step(self):
+        """Single output loop with priority arbitration."""
+        # 1) Person detected => full stop
+        if getattr(self, 'person_detected', False):
+            stop = Twist()
+            stop.linear.x = 0.0
+            stop.angular.z = 0.0
+            self.pub_cmd_vel.publish(stop)
+            return
+
+        # 2) Traffic light + stop line => stop
+        if getattr(self, 'label', 'NONE') == 'RED' and getattr(self, 'stop_line_state', False):
+            stop = Twist()
+            stop.linear.x = 0.0
+            stop.angular.z = 0.0
+            self.pub_cmd_vel.publish(stop)
+            return
+
+        # 4) Default: use the most recent pending twist from lane following
+        if getattr(self, '_pending_twist', None) is not None:
+            self.pub_cmd_vel.publish(self._pending_twist)
+            return
+
+        # 5) Fallback: publish zero to be safe
+        zero = Twist()
+        zero.linear.x = 0.0
+        zero.angular.z = 0.0
+        self.pub_cmd_vel.publish(zero)
+        return
 def main(args=None):
     rclpy.init(args=args)
     node = ControlLane()

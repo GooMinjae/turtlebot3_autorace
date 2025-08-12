@@ -175,6 +175,15 @@ class DetectLane(Node):
 
         self.pub_stop_line = self.create_publisher(Bool, '/detect/stop_line', 10)
 
+        # __init__ 안
+        self.pub_yellow_roi = self.create_publisher(Bool, '/detect/yellow_roi_hit', 1)
+        self.pub_white_roi  = self.create_publisher(Bool, '/detect/white_roi_hit', 1)
+
+        # ROI 기준 (원하는 대로 조정)
+        self.y_ref_ratio = 0.5      # 하단 근거리 라인(y = H*0.82)
+        self.center_band = (440, 560)  # 중앙 밴드 x범위(1000px 기준) -> 필요시 470~530 등으로 타이트하게
+
+
         parameter_descriptor_hue = ParameterDescriptor(
             description='hue parameter range',
             integer_range=[IntegerRange(
@@ -445,62 +454,39 @@ class DetectLane(Node):
                 self.right_fitx, self.right_fit = self.sliding_windown(cv_white_lane, 'right')
                 self.mov_avg_right = np.array([self.right_fit])
 
-        # == ★ 안전한 이동평균(빈 배열/NaN 방지) ==
-        MOV_AVG_LENGTH = 4
+        MOV_AVG_LENGTH = 5
 
-        def _safe_avg(mov, prev):
-            if mov.shape[0] == 0:
-                return prev
-            take = mov[::-1][:MOV_AVG_LENGTH]
-            fit = np.mean(take, axis=0)
-            if not np.all(np.isfinite(fit)):
-                return prev
-            return fit
+        self.left_fit = np.array([
+            np.mean(self.mov_avg_left[::-1][:, 0][0:MOV_AVG_LENGTH]),
+            np.mean(self.mov_avg_left[::-1][:, 1][0:MOV_AVG_LENGTH]),
+            np.mean(self.mov_avg_left[::-1][:, 2][0:MOV_AVG_LENGTH])
+            ])
+        self.right_fit = np.array([
+            np.mean(self.mov_avg_right[::-1][:, 0][0:MOV_AVG_LENGTH]),
+            np.mean(self.mov_avg_right[::-1][:, 1][0:MOV_AVG_LENGTH]),
+            np.mean(self.mov_avg_right[::-1][:, 2][0:MOV_AVG_LENGTH])
+            ])
 
-        if not hasattr(self, 'left_fit'):
-            self.left_fit = None
-        if not hasattr(self, 'right_fit'):
-            self.right_fit = None
+        if self.mov_avg_left.shape[0] > 1000:
+            self.mov_avg_left = self.mov_avg_left[0:MOV_AVG_LENGTH]
 
-        self.left_fit  = _safe_avg(self.mov_avg_left,  self.left_fit)
-        self.right_fit = _safe_avg(self.mov_avg_right, self.right_fit)
-
-        # mov_avg 길이 관리(뒤쪽 최근값만 유지)
-        if self.mov_avg_left.shape[0]  > 1000:
-            self.mov_avg_left  = self.mov_avg_left[-MOV_AVG_LENGTH:]
         if self.mov_avg_right.shape[0] > 1000:
-            self.mov_avg_right = self.mov_avg_right[-MOV_AVG_LENGTH:]
+            self.mov_avg_right = self.mov_avg_right[0:MOV_AVG_LENGTH]
 
-        # == (기존) 시각화/센터 계산 로직 호출 ==
         self.make_lane(cv_image, white_fraction, yellow_fraction)
 
-        # == ★ 정지선 검출: 양쪽 차선이 유효할 때만 ==
-        def _valid_x(arr):
-            return isinstance(arr, np.ndarray) and arr.size > 0 and np.all(np.isfinite(arr))
+        found, stop_y, dbg_img, conf = detect_stop_curve_using_lanes(
+            cv_image, self.left_fitx, self.right_fitx,
+            roi_height_ratio=0.60,     # 필요시 0.55~0.70 튜닝
+            coverage_th=0.30,          # 더 느슨하게 하려면 0.28~0.34
+            min_band_thickness=4       # 3~6 사이에서 조절
+        )
+        self.pub_stop_line.publish(Bool(data=found))
+        # 디버그 보고 싶으면 퍼블리셔 하나 더:
+        # self.pub_stop_dbg.publish(self.cvBridge.cv2_to_compressed_imgmsg(dbg_img, 'jpg'))
+        if conf > 0.3:
+            self.get_logger().info(f"[STOP curve] y={stop_y} conf={conf:.2f}")
 
-        have_leftx  = _valid_x(getattr(self, 'left_fitx',  None))
-        have_rightx = _valid_x(getattr(self, 'right_fitx', None))
-
-        found = False
-        conf = 0.0
-
-        if (white_fraction > BASE_FRACTION and yellow_fraction > BASE_FRACTION
-            and have_leftx and have_rightx):
-
-            found, stop_y, dbg_img, conf = detect_stop_curve_using_lanes(
-                cv_image, self.left_fitx, self.right_fitx,
-                roi_height_ratio=0.60, coverage_th=0.30, min_band_thickness=4
-            )
-            # ★ conf NaN 방어
-            if not np.isfinite(conf):
-                conf = 0.0
-
-            self.pub_stop_line.publish(Bool(data=found))
-            if found and conf > 0.3:
-                self.get_logger().info(f"[STOP curve] y={stop_y} conf={conf:.2f}")
-        else:
-            # 한쪽이라도 불확실하면 정지선 False 퍼블리시
-            self.pub_stop_line.publish(Bool(data=False))
 
     def maskWhiteLane(self, image):
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
@@ -631,32 +617,6 @@ class DetectLane(Node):
         x = nonzerox[lane_inds]
         y = nonzeroy[lane_inds]
 
-        """ 디버깅 시도
-        # # ✅ 안전장치: 점 개수/분산 체크
-        # if x.size < 20 or np.ptp(y) < 40:     # 개수와 y범위(높이) 조건
-        #     # 직전 계수가 있으면 그걸 유지, 없으면 sliding으로 복구
-        #     if hasattr(self, "lane_fit_bef"):
-        #         lane_fit = self.lane_fit_bef
-        #     else:
-        #         raise ValueError("insufficient points")
-
-        # else:
-        #     # with warnings.catch_warnings():
-        #     #     warnings.simplefilter('error', np.RankWarning)  # RankWarning을 예외로
-        #     try:
-        #         lane_fit = np.polyfit(y, x, 2)
-        #     except np.RankWarning:
-        #         # 이전 계수로 폴백 (없으면 예외 발생 → 상위에서 sliding 사용)
-        #         if hasattr(self, "lane_fit_bef"):
-        #             lane_fit = self.lane_fit_bef
-        #         else:
-        #             raise
-
-        # self.lane_fit_bef = lane_fit  # 최신 계수 저장
-
-        # ploty = np.linspace(0, image.shape[0]-1, image.shape[0])
-        # lane_fitx = lane_fit[0]*ploty**2 + lane_fit[1]*ploty + lane_fit[2]
-        """
         lane_fit = np.polyfit(y, x, 2)
 
         ploty = np.linspace(0, image.shape[0] - 1, image.shape[0])
@@ -735,7 +695,7 @@ class DetectLane(Node):
         좌/우 차선 영역을 확인하여 점선(2차선)이 존재하는지 판단합니다.
 
         Returns:
-            bool: 좌/우 중 한 쪽이라도 점선이면 True
+            String: "left"/"right"/"None"
         """
         if mask is None or not isinstance(mask, np.ndarray) or len(mask.shape) != 2:
             self.get_logger().error("Invalid mask input for dashed line detection.")
@@ -744,8 +704,6 @@ class DetectLane(Node):
         height, width = mask.shape
 
         # 좌/우 ROI 설정
-        # roi_left = mask[int(height * 0):int(height * 1), int(width * 0.1):int(width * 0.45)]
-        # roi_right = mask[int(height * 0):int(height * 1), int(width * 0.55):int(width * 0.9)]
         roi_left  = mask[int(height*0.4):int(height*0.98), int(width*0.04):int(width*0.50)]
         roi_right = mask[int(height*0.4):int(height*0.98), int(width*0.50):int(width*0.96)]
 
@@ -759,8 +717,6 @@ class DetectLane(Node):
             res_dir = "right"
         else:
             res_dir = "None"
-        # self.get_logger().warn(f"점선 인식 결과: [{res_dir}]: {result}")
-        # return result
         return result, res_dir
 
 
@@ -827,12 +783,6 @@ class DetectLane(Node):
 
         # both lane -> 2, left lane -> 1, right lane -> 3, none -> 0
         lane_state = UInt8()
-
-
-        if lane_state.data == 2:  # 양쪽 차선이 뚜렷
-            self.detect_dot_flag = False
-            self.dashed_counter = {"LEFT": 0, "RIGHT": 0}
-
 
         # self.get_logger().info(f"yellow: {yellow_fraction}, white: {white_fraction}")
         # self.get_logger().info(
@@ -925,7 +875,6 @@ class DetectLane(Node):
                 thickness=12
                 )
 
-
         elif self.reliability_white_line > 50 and self.reliability_yellow_line <= 50:
             centerx = np.subtract(self.right_fitx, 280)
             pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
@@ -942,7 +891,6 @@ class DetectLane(Node):
 
         else:
             self.is_center_x_exist = False
-            # self.is_center_x_exist = True
 
             lane_state.data = 0
 
@@ -985,6 +933,35 @@ class DetectLane(Node):
                 self.pub_lane.publish(msg_desired_center)
 
             self.pub_image_lane.publish(self.cvBridge.cv2_to_imgmsg(final, 'bgr8'))
+        # --- ROI 히트 계산 ---
+        H, W = cv_image.shape[:2]
+        y_ref = int(H * self.y_ref_ratio)
+
+        yellow_roi_hit = False
+        white_roi_hit  = False
+
+        # 노란선 x가 중앙 밴드에 들어왔는지 (좌측 차선 변경 시 복귀 트리거)
+        if yellow_fraction > BASE_FRACTION and hasattr(self, 'left_fitx'):
+            try:
+                yx = float(self.left_fitx[y_ref])
+                lo, hi = self.center_band
+                # 흰선이 거의 사라진 상태일 때 더 신뢰 (원하면 주석 해제)
+                # white_ok = (white_fraction < BASE_FRACTION * 0.6)
+                yellow_roi_hit = (lo <= yx <= hi)
+            except Exception:
+                pass
+
+        # 흰선 x가 중앙 밴드에 들어왔는지 (우측 차선 변경 시 복귀 트리거)
+        if white_fraction > BASE_FRACTION and hasattr(self, 'right_fitx'):
+            try:
+                wx = float(self.right_fitx[y_ref])
+                lo, hi = self.center_band
+                white_roi_hit = (lo <= wx <= hi)
+            except Exception:
+                pass
+
+        self.pub_yellow_roi.publish(Bool(data=yellow_roi_hit))
+        self.pub_white_roi.publish(Bool(data=white_roi_hit))
 
 
 def main(args=None):
