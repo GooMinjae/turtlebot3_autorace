@@ -40,41 +40,11 @@ def generate_launch_description():
         output='screen'
     )
 
-    detect_lane_node = Node(
-        package='turtlebot3_autorace_detect',
-        executable='detect_lane',
-        name='detect_lane',
-        output='screen',
-        parameters=[
-            {'is_detection_calibration_mode': True},
-            detect_param
-        ],
-        remappings=[
-            ('/detect/image_input', '/camera/image_projected'),
-            ('/detect/image_input/compressed', '/camera/image_projected/compressed'),
-            ('/detect/image_output', '/detect/image_lane'),
-            ('/detect/image_output/compressed', '/detect/image_lane/compressed'),
-            ('/detect/image_output_sub1', '/detect/image_white_lane_marker'),
-            ('/detect/image_output_sub1/compressed', '/detect/image_white_lane_marker/compressed'),
-            ('/detect/image_output_sub2', '/detect/image_yellow_lane_marker'),
-            ('/detect/image_output_sub2/compressed', '/detect/image_yellow_lane_marker/compressed')
-        ]
-    )
 
 
 
 
 
-    control_node = Node(
-            package='turtlebot3_autorace_mission',
-            executable='control_lane',
-            name='control_lane',
-            output='screen',
-            remappings=[
-                ('/control/lane', '/detect/lane'),
-                ('/control/cmd_vel', '/cmd_vel')
-            ]
-        )
 
     person_node = Node(
             package='turtlebot3_autorace_detect',
@@ -87,11 +57,11 @@ def generate_launch_description():
 
     return LaunchDescription([
         avoid_object_node,
-        detect_lane_node,
+        # detect_lane_node,
         # detect_traffic_light_node,
         person_node,
         # detect_sign_node,
         # detect_speed_node,
-        control_node,
+        # control_node,
 
     ])
