@@ -78,8 +78,8 @@ class DetectSign(Node):
         dir_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
         dir_path = os.path.join(dir_path, 'image')
 
-        self.img_10km = cv2.imread(dir_path + '/10km', 0)  # trainImage3
-        self.img_50km = cv2.imread(dir_path + '/50km', 0)  # trainImage3
+        self.img_10km = cv2.imread(dir_path + '/vel_10.png', 0)  # trainImage3
+        self.img_50km = cv2.imread(dir_path + '/vel_50.png', 0)  # trainImage3
         self.kp_10km, self.des_10km = self.sift.detectAndCompute(self.img_10km, None)
 
         self.kp_50km, self.des_50km = self.sift.detectAndCompute(self.img_50km, None)
@@ -119,143 +119,99 @@ class DetectSign(Node):
         elif self.sub_image_type == 'raw':
             cv_image_input = self.cvBridge.imgmsg_to_cv2(image_msg, 'bgr8')
 
+
+        # --- SIFT는 그레이스케일 권장 ---
+        gray = cv2.cvtColor(cv_image_input, cv2.COLOR_BGR2GRAY)
+
         MIN_MATCH_COUNT = 3
         MIN_MSE_DECISION = 80000
 
+        # keypoints & descriptors
+        kp1, des1 = self.sift.detectAndCompute(gray, None)
+        if des1 is None or len(kp1) == 0:
+            # 특징점이 없으면 이번 프레임 패스
+            return
         # find the keypoints and descriptors with SIFT
-        kp1, des1 = self.sift.detectAndCompute(cv_image_input, None)
-        matches_tunnel = self.flann.knnMatch(des1, self.des_tunnel, k=2)
+
+        matches_10km = self.flann.knnMatch(des1, self.des_10km, k=2)
+        matches_50km = self.flann.knnMatch(des1, self.des_50km, k=2)
 
         image_out_num = 1
 
+        # 10km 매칭
         good_10km = []
-        for m, n in matches_tunnel:
-            if m.distance < 0.7*n.distance:
+        for m, n in matches_10km:
+            if m.distance < 0.7 * n.distance:
                 good_10km.append(m)
-        if len(good_10km) > MIN_MATCH_COUNT:
-            src_pts = np.float32([
-                kp1[m.queryIdx].pt for m in good_10km
-            ]).reshape(-1, 1, 2)
-            dst_pts = np.float32([
-                self.kp_10km[m.trainIdx].pt for m in good_10km
-            ]).reshape(-1, 1, 2)
 
+        if len(good_10km) > MIN_MATCH_COUNT:
+            src_pts = np.float32([kp1[m.queryIdx].pt for m in good_10km]).reshape(-1,1,2)
+            dst_pts = np.float32([self.kp_10km[m.trainIdx].pt for m in good_10km]).reshape(-1,1,2)
             M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-            matchesMask_10km = mask.ravel().tolist()
+            matchesMask_10km = None if mask is None else mask.ravel().tolist()
 
             mse = self.fnCalcMSE(src_pts, dst_pts)
             if mse < MIN_MSE_DECISION:
                 msg_sign = String()
                 msg_sign.data = "km_10"
-
                 self.pub_traffic_sign.publish(msg_sign)
-
                 self.get_logger().info('10km')
                 image_out_num = 4
         else:
             matchesMask_10km = None
-            # self.get_logger().info('nothing')
-        good_50km = []
-        for m, n in matches_tunnel:
-            if m.distance < 0.7*n.distance:
-                good_50km.append(m)
-        if len(good_50km) > MIN_MATCH_COUNT:
-            src_pts = np.float32([
-                kp1[m.queryIdx].pt for m in good_50km
-            ]).reshape(-1, 1, 2)
-            dst_pts = np.float32([
-                self.kp_50km[m.trainIdx].pt for m in good_50km
-            ]).reshape(-1, 1, 2)
 
+        # 50km 매칭
+        good_50km = []
+        for m, n in matches_50km:
+            if m.distance < 0.7 * n.distance:
+                good_50km.append(m)
+
+        if len(good_50km) > MIN_MATCH_COUNT:
+            src_pts = np.float32([kp1[m.queryIdx].pt for m in good_50km]).reshape(-1,1,2)
+            dst_pts = np.float32([self.kp_50km[m.trainIdx].pt for m in good_50km]).reshape(-1,1,2)
             M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-            matchesMask_50km = mask.ravel().tolist()
+            matchesMask_50km = None if mask is None else mask.ravel().tolist()
 
             mse = self.fnCalcMSE(src_pts, dst_pts)
             if mse < MIN_MSE_DECISION:
                 msg_sign = String()
                 msg_sign.data = "km_50"
-
                 self.pub_traffic_sign.publish(msg_sign)
-
                 self.get_logger().info('50km')
                 image_out_num = 5
         else:
             matchesMask_50km = None
-            # self.get_logger().info('nothing')
 
+        # --- 출력(그림 그리기 부분은 기존 그대로) ---
         if image_out_num == 1:
             if self.pub_image_type == 'compressed':
                 self.pub_image_traffic_sign.publish(
-                    self.cvBridge.cv2_to_compressed_imgmsg(
-                        cv_image_input, 'jpg'
-                    )
-                )
-            elif self.pub_image_type == 'raw':
+                    self.cvBridge.cv2_to_compressed_imgmsg(cv_image_input, 'jpg'))
+            else:
                 self.pub_image_traffic_sign.publish(
-                    self.cvBridge.cv2_to_imgmsg(
-                        cv_image_input, 'bgr8'
-                    )
-                )
+                    self.cvBridge.cv2_to_imgmsg(cv_image_input, 'bgr8'))
         elif image_out_num == 4:
-            draw_params_10km = {
-                'matchColor': (255, 0, 0),  # draw matches in green color
-                'singlePointColor': None,
-                'matchesMask': matchesMask_10km,  # draw only inliers
-                'flags': 2,
-            }
-
-            final_10km = cv2.drawMatches(
-                cv_image_input,
-                kp1,
-                self.img_10km,
-                self.kp_10km,
-                good_10km,
-                None,
-                **draw_params_10km
-            )
-
+            draw_params_10km = dict(matchColor=(255,0,0), singlePointColor=None,
+                                    matchesMask=matchesMask_10km, flags=2)
+            final_10km = cv2.drawMatches(cv_image_input, kp1, self.img_10km, self.kp_10km,
+                                        good_10km, None, **draw_params_10km)
             if self.pub_image_type == 'compressed':
                 self.pub_image_traffic_sign.publish(
-                    self.cvBridge.cv2_to_compressed_imgmsg(
-                        final_10km, 'jpg'
-                    )
-                )
-            elif self.pub_image_type == 'raw':
+                    self.cvBridge.cv2_to_compressed_imgmsg(final_10km, 'jpg'))
+            else:
                 self.pub_image_traffic_sign.publish(
-                    self.cvBridge.cv2_to_imgmsg(
-                        final_10km, 'bgr8'
-                    )
-                )
+                    self.cvBridge.cv2_to_imgmsg(final_10km, 'bgr8'))
         elif image_out_num == 5:
-            draw_params_50km = {
-                'matchColor': (255, 0, 0),  # draw matches in green color
-                'singlePointColor': None,
-                'matchesMask': matchesMask_50km,  # draw only inliers
-                'flags': 2,
-            }
-
-            final_50km = cv2.drawMatches(
-                cv_image_input,
-                kp1,
-                self.img_50km,
-                self.kp_50km,
-                good_50km,
-                None,
-                **draw_params_50km
-            )
-
+            draw_params_50km = dict(matchColor=(255,0,0), singlePointColor=None,
+                                    matchesMask=matchesMask_50km, flags=2)
+            final_50km = cv2.drawMatches(cv_image_input, kp1, self.img_50km, self.kp_50km,
+                                        good_50km, None, **draw_params_50km)
             if self.pub_image_type == 'compressed':
                 self.pub_image_traffic_sign.publish(
-                    self.cvBridge.cv2_to_compressed_imgmsg(
-                        final_50km, 'jpg'
-                    )
-                )
-            elif self.pub_image_type == 'raw':
+                    self.cvBridge.cv2_to_compressed_imgmsg(final_50km, 'jpg'))
+            else:
                 self.pub_image_traffic_sign.publish(
-                    self.cvBridge.cv2_to_imgmsg(
-                        final_50km, 'bgr8'
-                    )
-                )
+                    self.cvBridge.cv2_to_imgmsg(final_50km, 'bgr8'))
 
 
 def main(args=None):
