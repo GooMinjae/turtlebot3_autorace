@@ -336,7 +336,7 @@ class ControlLane(Node):
 
         # === 험한 지형을 위한 안정적인 속도 제어 로직 ===
         # 차선 상태가 양호하고 (1, 3), 차선 오차가 작을 때만 가속
-        if self.lane_state in (1, 3) and abs(error) < self.error_ok_px:
+        if self.lane_state in (1, 2, 3) and abs(error) < self.error_ok_px:
             # 차선이 잘 보이고, 오차가 작을 때만 가속
             self.current_speed = min(self.current_speed + self.accel_step, self.max_speed)
             linear_x = self.current_speed

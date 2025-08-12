@@ -475,7 +475,7 @@ class DetectLane(Node):
         self.pub_stop_line.publish(Bool(data=found))
         # 디버그 보고 싶으면 퍼블리셔 하나 더:
         # self.pub_stop_dbg.publish(self.cvBridge.cv2_to_compressed_imgmsg(dbg_img, 'jpg'))
-        if found:
+        if conf > 0.3:
             self.get_logger().info(f"[STOP curve] y={stop_y} conf={conf:.2f}")
 
 
