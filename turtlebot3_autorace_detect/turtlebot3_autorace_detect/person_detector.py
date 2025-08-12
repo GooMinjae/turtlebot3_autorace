@@ -30,7 +30,7 @@ class PersonDetector(Node):
         # ROI 방식
         self.roi_mode = 'custom'    # 'bottom' | 'center' | 'custom'
         self.roi_y_start_ratio = 0.65
-        self.roi_y_end_ratio   = 0.98
+        self.roi_y_end_ratio   = 0.82
         self.yolo_stop_on_any_person = False
 
         # [YOLO] 사용 스위치 및 파라미터
