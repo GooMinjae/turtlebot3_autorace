@@ -32,8 +32,8 @@ class PersonDetector(Node):
         self.use_yolo = True
         self.yolo_conf = 0.5
         self.yolo_person_class_id = 0
-        self.yolo_box_area_stop_ratio = 0.01   # ROI 면적 대비 person 박스 합계가 이 비율↑면 STOP
-        self.yolo_box_area_slow_ratio = 0.01   # ROI 면적 대비 person 박스 합계가 이 비율↑면 SLOW
+        self.yolo_box_area_stop_ratio = 0.03   # ROI 면적 대비 person 박스 합계가 이 비율↑면 STOP
+        self.yolo_box_area_slow_ratio = 0.03   # ROI 면적 대비 person 박스 합계가 이 비율↑면 SLOW
         self.yolo_stop_on_any_person = True    # ROI 내 사람이 보이면(면적 무관) SLOW 트리거
 
         # [DEVICE] 기본 CPU 강제 (MX250 CUDA 커널 불일치 방지)
@@ -212,10 +212,10 @@ class PersonDetector(Node):
                         next_state = 'GO'
                 else:
                     self.trigger_cnt = 0; self.release_cnt = 0
-            else:
-                self.release_cnt += 1; self.trigger_cnt = 0
-                if self.state != 'GO' and self.release_cnt >= self.n_frames_release:
-                    next_state = 'GO'
+            # else:
+            #     self.release_cnt += 1; self.trigger_cnt = 0
+            #     if self.state != 'GO' and self.release_cnt >= self.n_frames_release:
+            #         next_state = 'GO'
 
             # 상태 변경 반영
             if next_state != self.state:
