@@ -877,7 +877,7 @@ class DetectLane(Node):
                 color=(0, 255, 255),
                 thickness=12
                 )
-            self.sign = "NONE"
+
 
         elif self.reliability_white_line > 50 and self.reliability_yellow_line <= 50:
             centerx = np.subtract(self.right_fitx, 280)
