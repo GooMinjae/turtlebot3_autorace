@@ -379,9 +379,7 @@ class ControlLane(Node):
             self.pub_cmd_vel.publish(twist)
             return
         if self.sign == "km_50":
-            twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)) *2
-
-        
+            twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)) *5
         elif "intersection" == self.inter_sign:
             twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05))/2
         else:
