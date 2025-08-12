@@ -759,7 +759,7 @@ class DetectLane(Node):
             res_dir = "right"
         else:
             res_dir = "None"
-        self.get_logger().warn(f"점선 인식 결과: [{res_dir}]: {result}")
+        # self.get_logger().warn(f"점선 인식 결과: [{res_dir}]: {result}")
         # return result
         return result, res_dir
 
@@ -794,12 +794,12 @@ class DetectLane(Node):
             y_positions.sort()
             y_gaps = np.diff(y_positions)
             std_gap = np.std(y_gaps) if len(y_gaps) > 0 else 0
-            self.get_logger().info(f"[{label}] 점선 조각: {len(y_positions)}, 간격 std: {std_gap:.2f}")
+            # self.get_logger().info(f"[{label}] 점선 조각: {len(y_positions)}, 간격 std: {std_gap:.2f}")
 
             if std_gap < std_threshold:
                 is_dashed_now = True
-        else:
-            self.get_logger().warn(f"[{label}] 점선 조각 부족: {len(y_positions)}개")
+
+            # self.get_logger().warn(f"[{label}] 점선 조각 부족: {len(y_positions)}개")
 
         # === 카운터 누적 ===
         if is_dashed_now:

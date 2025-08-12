@@ -306,14 +306,14 @@ class ControlLane(Node):
             self.dashed_detected = False
 
 
-        # === 중심값 결정 ===
-        if self.lane_state == 0 and self.changing_lane:
-            twist = Twist()
-            twist.linear.x = 0.06
-            twist.angular.z = 0.
-            self.pub_cmd_vel.publish(twist)
-            self.get_logger().warn("lane_state == 0: 직진")
-            return
+        # # === 중심값 결정 ===
+        # if self.lane_state == 0 and self.changing_lane:
+        #     twist = Twist()
+        #     twist.linear.x = 0.06
+        #     twist.angular.z = 0.
+        #     self.pub_cmd_vel.publish(twist)
+        #     self.get_logger().warn("lane_state == 0: 직진")
+        #     return
 
         if self.changing_lane:
             if (self.lane_state == 1 and self.dashed_dir == "left") or (self.lane_state == 3 and self.dashed_dir == "right"):

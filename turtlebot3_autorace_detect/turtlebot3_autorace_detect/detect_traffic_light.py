@@ -412,7 +412,7 @@ class DetectTrafficLight(Node):
             self.point_y = int(keypts[i].pt[1])
             if roi_x_start < self.point_x < roi_x_end and roi_y_start < self.point_y < roi_y_end:
                 detect_result = True
-                self.get_logger().info(f'{color} light detected')
+                # self.get_logger().info(f'{color} light detected')
             else:
                 detect_result = False
 
