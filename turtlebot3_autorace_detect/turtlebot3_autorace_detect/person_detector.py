@@ -29,9 +29,9 @@ class PersonDetector(Node):
 
         # ROI 방식
         self.roi_mode = 'custom'    # 'bottom' | 'center' | 'custom'
-        self.roi_y_start_ratio = 0.65
-        self.roi_y_end_ratio   = 0.82
-        self.yolo_stop_on_any_person = False
+        self.roi_y_start_ratio = 0.40
+        self.roi_y_end_ratio   = 0.75
+        # self.yolo_stop_on_any_person = False
 
         # [YOLO] 사용 스위치 및 파라미터
         self.use_yolo = True               # YOLO 사용 여부 (False면 색상 방식으로 복귀)
@@ -44,8 +44,9 @@ class PersonDetector(Node):
         # [NEAR] 근접 게이트: '로봇 바로 앞'에서만 유효로 처리
         self.near_gate = True
         self.near_center_x_ratio_max = 0.65
-        self.near_min_height_ratio   = 0.25   # 박스 높이 >= ROI 높이의 25%
-        self.near_min_bottom_ratio   = 0.70   # 박스 하단이 ROI 하단 70% 위치 이하(=화면 하단쪽)
+        self.near_center_x_ratio_min = 0.35
+        self.near_min_height_ratio   = 0.50   # 박스 높이 >= ROI 높이의 50%
+        self.near_min_bottom_ratio   = 0.60   # 박스 하단이 ROI 하단 60% 위치 이하(=화면 하단쪽)
         
         # [색상 방식] 면적 임계값 (fallback/참고)
         self.area_slow    = 700
