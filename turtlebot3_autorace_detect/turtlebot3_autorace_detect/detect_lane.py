@@ -816,6 +816,7 @@ class DetectLane(Node):
                     color=(0, 255, 255),
                     thickness=12
                     )
+                self.sign = "NONE"
 
                 # Draw the lane onto the warped blank image
                 cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
