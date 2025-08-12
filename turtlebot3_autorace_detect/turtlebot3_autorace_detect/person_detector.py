@@ -39,14 +39,14 @@ class PersonDetector(Node):
         self.yolo_person_class_id = 0      # Ultralytics 모델에서 'person' 클래스 ID(일반적으로 0)
         self.yolo_box_area_stop_ratio = 0.02   # ROI 면적 대비 person box 합계 면적이 이 비율 이상이면 STOP
         self.yolo_box_area_slow_ratio = 0.01   # ROI 면적 대비 person box 합계 면적이 이 비율 이상이면 SLOW
-        self.yolo_stop_on_any_person = True    # True면 박스 면적 상관없이 "사람 존재"만으로도 trigger 판단(ROI 내)
+        self.yolo_stop_on_any_person = False    # True면 박스 면적 상관없이 "사람 존재"만으로도 trigger 판단(ROI 내)
         
-        # [NEAR] 근접 게이트: '로봇 바로 앞'에서만 유효로 처리
-        self.near_gate = True
-        self.near_center_x_ratio_max = 0.65
-        self.near_center_x_ratio_min = 0.35
-        self.near_min_height_ratio   = 0.50   # 박스 높이 >= ROI 높이의 50%
-        self.near_min_bottom_ratio   = 0.60   # 박스 하단이 ROI 하단 60% 위치 이하(=화면 하단쪽)
+        # # [NEAR] 근접 게이트: '로봇 바로 앞'에서만 유효로 처리
+        # self.near_gate = True
+        # self.near_center_x_ratio_max = 0.65
+        # self.near_center_x_ratio_min = 0.35
+        # self.near_min_height_ratio   = 0.50   # 박스 높이 >= ROI 높이의 50%
+        # self.near_min_bottom_ratio   = 0.60   # 박스 하단이 ROI 하단 60% 위치 이하(=화면 하단쪽)
         
         # [색상 방식] 면적 임계값 (fallback/참고)
         self.area_slow    = 700
