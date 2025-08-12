@@ -64,7 +64,7 @@ class DetectSign(Node):
             self.pub_image_traffic_sign = self.create_publisher(
                 Image, '/detect/image_output', 10
             )
-        self.pub_sign = self.create_publisher(String, "/detect/sign", 1)
+        self.pub_sign = self.create_publisher(String, "/detect/inter_sign", 1)
         self.cvBridge = CvBridge()
         self.TrafficSign = Enum('TrafficSign', 'intersection left right')
         self.counter = 1

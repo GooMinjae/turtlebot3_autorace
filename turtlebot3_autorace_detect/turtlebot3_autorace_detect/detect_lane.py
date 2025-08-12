@@ -307,7 +307,7 @@ class DetectLane(Node):
         self.sign="NONE"
         self.sub_sign = self.create_subscription(
             String,
-            '/detect/sign',
+            '/detect/inter_sign',
             self.callback_sign,
             1
         )
@@ -333,14 +333,14 @@ class DetectLane(Node):
         self.lock = threading.Lock()
         self.pre_centerx = 500
     def callback_sign(self,msg):
-        self.sign = msg.data
-        # self.values.append(msg.data)
+        # self.sign = msg.data
+        self.values.append(msg.data)
 
-        # if len(self.values) >= 10:
-        #     # 빈도수 계산
-        #     most_common_value, count = Counter(self.values).most_common(1)[0]
-        #     self.sign = most_common_value
-        #     self.values.clear()
+        if len(self.values) >= 5:
+            # 빈도수 계산
+            most_common_value, count = Counter(self.values).most_common(1)[0]
+            self.sign = most_common_value
+            self.values.clear()
 
     def cb_reset_dashed(self, msg: Bool):
         if msg.data:
@@ -817,7 +817,7 @@ class DetectLane(Node):
                     color=(0, 255, 255),
                     thickness=12
                     )
-                self.sign = "NONE"
+                # self.sign = "NONE"
 
                 # Draw the lane onto the warped blank image
                 cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
@@ -829,9 +829,9 @@ class DetectLane(Node):
                 # else:
                 #     centerx = np.subtract(self.right_fitx, LANE_WIDTH)           # 기존 로직(오른쪽 차선 중심)
                 pts_center = np.array([np.transpose(np.vstack([centerx, ploty]))])
-                if self.sign == "left":
-                    centerx = np.add(self.left_fitx, 280)
-                self.sign = "NONE"
+                # if self.sign == "left":
+                #     centerx = np.add(self.left_fitx, 280)
+                # self.sign = "NONE"
 
                 lane_state.data = 3
 
