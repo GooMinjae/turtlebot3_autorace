@@ -193,7 +193,7 @@ class DetectSign(Node):
         if not detected:
             good_right = []
             for m, n in matches_right:
-                if m.distance < 0.6*n.distance:
+                if m.distance < 0.65*n.distance:
                     good_right.append(m)
 
             if len(good_right) > MIN_MATCH_COUNT:

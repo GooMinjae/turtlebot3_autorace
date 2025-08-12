@@ -382,7 +382,7 @@ class ControlLane(Node):
             twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)) *2
 
         
-        elif "YELLOW" == self.label or "intersection" == self.inter_sign:
+        elif "intersection" == self.inter_sign:
             twist.linear.x = (min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05))/2
         else:
             twist.linear.x = min(self.MAX_VEL * (max(1 - abs(error) / 500, 0) ** 2.2), 0.05)
