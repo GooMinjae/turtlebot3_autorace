@@ -335,7 +335,7 @@ class DetectLane(Node):
     def callback_sign(self,msg):
         self.values.append(msg.data)
 
-        if len(self.values) >= 20:
+        if len(self.values) >= 10:
             # 빈도수 계산
             most_common_value, count = Counter(self.values).most_common(1)[0]
             self.sign = most_common_value
