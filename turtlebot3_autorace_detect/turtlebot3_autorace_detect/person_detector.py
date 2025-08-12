@@ -29,12 +29,12 @@ class PersonDetector(Node):
 
         # ROI 방식
         self.roi_mode = 'custom'    # 'bottom' | 'center' | 'custom'
-        self.roi_y_start_ratio = 0.35
-        self.roi_y_end_ratio   = 0.75
+        self.roi_y_start_ratio = 0.45
+        self.roi_y_end_ratio   = 0.8
 
         # [YOLO] 사용 스위치 및 파라미터
         self.use_yolo = True               # YOLO 사용 여부 (False면 색상 방식으로 복귀)
-        self.yolo_conf = 0.4               # YOLO confidence threshold
+        self.yolo_conf = 0.7               # YOLO confidence threshold
         self.yolo_person_class_id = 0      # Ultralytics 모델에서 'person' 클래스 ID(일반적으로 0)
         self.yolo_box_area_stop_ratio = 0.02   # ROI 면적 대비 person box 합계 면적이 이 비율 이상이면 STOP
         self.yolo_box_area_slow_ratio = 0.01   # ROI 면적 대비 person box 합계 면적이 이 비율 이상이면 SLOW
