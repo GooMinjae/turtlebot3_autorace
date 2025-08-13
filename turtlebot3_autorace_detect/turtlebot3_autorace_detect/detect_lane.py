@@ -32,6 +32,7 @@ from std_msgs.msg import Float64, Bool, UInt8 ,String
 import threading
 from typing import Tuple
 from collections import Counter
+import time
 BASE_FRACTION = 3000
 
 def detect_stop_curve_using_lanes(
@@ -318,7 +319,7 @@ class DetectLane(Node):
         self.sub_sign = self.create_subscription(
             String,
             '/detect/inter_sign',
-            self.callback_sign,
+            self.trigger_callback,
             1
         )
         self.cvBridge = CvBridge()
@@ -342,8 +343,44 @@ class DetectLane(Node):
         self.values = []
         self.lock = threading.Lock()
         self.pre_centerx = 500
-    def callback_sign(self,msg):
-        self.sign = msg.data
+        self.data_sub = None
+        self.active = False
+
+    def trigger_callback(self, msg):
+        # 특정 데이터 값 감지 (여기선 "start")
+        if msg.data == "intersection" and not self.active:
+            self.get_logger().info("[트리거 감지] 30초 동안 data 구독 시작")
+            self.start_watching(30)
+
+    def start_watching(self, duration):
+        self.active = True
+        # 실제 데이터를 받는 구독
+        self.data_sub = self.create_subscription(
+            String,
+            '/detect/inter_sign',
+            self.data_callback,
+            1
+        )
+        # 30초 후 해제하는 스레드
+        threading.Thread(target=self._stop_after, args=(duration,), daemon=True).start()
+
+    def data_callback(self, msg):
+        # 30초 동안만 데이터 처리
+        if self.active:
+            self.sign = msg.data
+
+            self.get_logger().info(f"[데이터 수신] {msg.data}")
+
+    def _stop_after(self, duration):
+        time.sleep(duration)
+        if self.data_sub:
+            self.destroy_subscription(self.data_sub)
+            self.data_sub = None
+        self.active = False
+        self.get_logger().info("30초 종료 - 데이터 수신 중단")
+
+    # def callback_sign(self,msg):
+    #     self.sign = msg.data
         # self.values.append(msg.data)
 
         # if len(self.values) >= 5:
