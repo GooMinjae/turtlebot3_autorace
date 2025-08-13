@@ -163,7 +163,7 @@ class DetectSign(Node):
 
         good_left = []
         for m, n in matches_left:
-            if m.distance < 0.7*n.distance:
+            if m.distance < 0.67*n.distance:
                 good_left.append(m)
 
         detected = False  # 감지 플래그
