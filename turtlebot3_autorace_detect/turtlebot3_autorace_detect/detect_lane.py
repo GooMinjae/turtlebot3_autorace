@@ -33,6 +33,12 @@ import threading
 from typing import Tuple
 from collections import Counter
 import time
+
+from rclpy.qos import (
+    QoSProfile, QoSHistoryPolicy, QoSReliabilityPolicy, QoSDurabilityPolicy,
+)
+
+
 BASE_FRACTION = 3000
 
 def detect_stop_curve_using_lanes(
@@ -229,6 +235,13 @@ class DetectLane(Node):
                 ('is_detection_calibration_mode', False)
             ]
         )
+        img_qos = QoSProfile(
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.VOLATILE,
+        )
+
 
         self.hue_white_l = self.get_parameter(
             'detect.lane.white.hue_l').get_parameter_value().integer_value
@@ -266,11 +279,11 @@ class DetectLane(Node):
 
         if self.sub_image_type == 'compressed':
             self.sub_image_original = self.create_subscription(
-                CompressedImage, '/detect/image_input/compressed', self.cbFindLane, 1
+                CompressedImage, '/detect/image_input/compressed', self.cbFindLane, img_qos
                 )
         elif self.sub_image_type == 'raw':
             self.sub_image_original = self.create_subscription(
-                Image, '/detect/image_input', self.cbFindLane, 1
+                Image, '/detect/image_input', self.cbFindLane, img_qos
                 )
 
         if self.pub_image_type == 'compressed':
@@ -426,13 +439,13 @@ class DetectLane(Node):
                 self.lightness_yellow_l = param.value
             elif param.name == 'detect.lane.yellow.lightness_h':
                 self.lightness_yellow_h = param.value
-            return SetParametersResult(successful=True)
+        return SetParametersResult(successful=True)
 
     def cbFindLane(self, image_msg):
         # Change the frame rate by yourself. Now, it is set to 1/3 (10fps).
         # Unappropriate value of frame rate may cause huge delay on entire recognition process.
         # This is up to your computer's operating power.
-        if self.counter % 3 != 0:
+        if self.counter % 1 != 0:
             self.counter += 1
             return
         else:
@@ -736,7 +749,7 @@ class DetectLane(Node):
         """
         if mask is None or not isinstance(mask, np.ndarray) or len(mask.shape) != 2:
             self.get_logger().error("Invalid mask input for dashed line detection.")
-            return False
+            return (False, "None")
 
         height, width = mask.shape
 
@@ -754,7 +767,7 @@ class DetectLane(Node):
             res_dir = "right"
         else:
             res_dir = "None"
-        return result, res_dir
+        return (result, res_dir)
 
 
     def _check_dashed_roi(self, roi, min_len, max_len, min_segments, std_threshold, visualize, label="ROI"):

@@ -27,6 +27,7 @@ class PersonDetector(Node):
         self.roi_mode = 'custom'    # 'bottom' | 'center' | 'custom'
         self.roi_y_start_ratio = 0.35
         self.roi_y_end_ratio   = 0.75
+        self.roi_x_margin_ratio = 0.25   # ← 좌우 25%씩 제외(가운데 50%만 사용)
 
         # [YOLO] 파라미터
         self.use_yolo = True
@@ -74,18 +75,33 @@ class PersonDetector(Node):
         self.get_logger().info('PersonDetector ready (YOLO only).')
 
     def get_roi(self, frame):
-        """ROI 영역을 리턴: (roi_img, (y0, y1, w, h))"""
+        """ROI 영역을 리턴: (roi_img, (y0, y1, w, h)) — 가로/세로 모두 중앙 기준"""
         h, w = frame.shape[:2]
+
+        # 세로 범위
         if self.roi_mode == 'bottom':
-            y0 = int(h * 0.55); y1 = int(h * 1.00)
+            y0 = int(h * 0.55); y1 = h
+            x0 = 0; x1 = w
         elif self.roi_mode == 'center':
             y0 = int(h * 0.30); y1 = int(h * 0.70)
-        else:
+            xm = int(w * getattr(self, 'roi_x_margin_ratio', 0.25))
+            x0 = xm; x1 = w - xm
+        else:  # 'custom'
             r0 = max(0.0, min(self.roi_y_start_ratio, 1.0))
             r1 = max(r0 + 0.05, min(self.roi_y_end_ratio, 1.0))
             y0 = int(h * r0); y1 = int(h * r1)
-        roi = frame[y0:y1, :]
+            xm = int(w * getattr(self, 'roi_x_margin_ratio', 0.25))
+            x0 = xm; x1 = w - xm
+
+        # 실제 ROI 크롭
+        roi = frame[y0:y1, x0:x1]
+
+        # 디버깅/시각화용 보관
+        self._last_roi_x0 = x0; self._last_roi_x1 = x1
+
+        # 기존 인터페이스 유지를 위해 (y0, y1, w, h) 반환은 그대로 둠
         return roi, (y0, y1, w, h)
+
 
     def publish_flag(self):
         msg = Bool()
@@ -94,7 +110,10 @@ class PersonDetector(Node):
 
     def _draw_roi(self, img, y0, y1, color=(0, 255, 255)):
         h, w = img.shape[:2]
-        cv2.rectangle(img, (0, y0), (w - 1, y1 - 1), color, 2)
+        xm = int(w * getattr(self, 'roi_x_margin_ratio', 0.25)) if self.roi_mode != 'bottom' else 0
+        x0 = xm; x1 = w - xm
+        cv2.rectangle(img, (x0, y0), (x1 - 1, y1 - 1), color, 2)
+
 
     def _annotate_and_publish(self, frame_bgr, dets_in_roi):
         """rqt에서 확인할 수 있도록 주석 이미지를 퍼블리시"""
@@ -125,6 +144,11 @@ class PersonDetector(Node):
 
         roi_img, (y0, y1, w, h) = self.get_roi(frame_bgr)
         roi_area = max(1, roi_img.shape[0] * roi_img.shape[1])
+
+        # ✨ 추가: x 오프셋 계산(가운데 ROI일 때만)
+        xm = int(w * getattr(self, 'roi_x_margin_ratio', 0.25)) if self.roi_mode != 'bottom' else 0
+        x_offset = xm
+
 
         try:
             results = self.yolo_model(
@@ -158,8 +182,8 @@ class PersonDetector(Node):
                 xyxy = b.xyxy[0].cpu().numpy().astype(int)  # [x1,y1,x2,y2] (ROI 좌표계)
                 x1, y1_box, x2, y2_box = xyxy.tolist()
 
-                # 원본 좌표계로 보정(시각화용)
-                boxes.append((x1, y1_box + y0, x2, y2_box + y0, conf))
+                # 원본 좌표계로 보정(가로/세로 모두 보정)
+                boxes.append((x1 + x_offset, y1_box + y0, x2 + x_offset, y2_box + y0, conf))
                 person_found = True
 
                 w_box = max(0, x2 - x1)
