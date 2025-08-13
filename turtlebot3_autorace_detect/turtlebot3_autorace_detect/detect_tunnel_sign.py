@@ -123,8 +123,8 @@ class DetectSign(Node):
         # --- SIFT는 그레이스케일 권장 ---
         gray = cv2.cvtColor(cv_image_input, cv2.COLOR_BGR2GRAY)
 
-        MIN_MATCH_COUNT = 5
-        MIN_MSE_DECISION = 50000
+        MIN_MATCH_COUNT = 3
+        MIN_MSE_DECISION = 60000
 
         # keypoints & descriptors
         kp1, des1 = self.sift.detectAndCompute(gray, None)
