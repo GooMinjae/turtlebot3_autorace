@@ -37,6 +37,19 @@ def generate_launch_description():
     # path for parameter file
     pkg_share = get_package_share_directory('turtlebot3_autorace_detect')
     param_file = os.path.join(pkg_share, 'param', 'traffic_light', 'traffic_light.yaml')
+    
+    traffic_light_node = Node(
+        package='turtlebot3_autorace_detect',
+        executable='traffic_light',
+        name='traffic_light',
+        output='screen',
+        parameters=[
+
+        ],
+        remappings=[
+
+        ],
+    )
 
     # Define the traffic light detection node
     detect_traffic_light_node = Node(
@@ -64,5 +77,6 @@ def generate_launch_description():
 
     return LaunchDescription([
         calibration_mode_arg,
+        traffic_light_node,
         detect_traffic_light_node,
     ])

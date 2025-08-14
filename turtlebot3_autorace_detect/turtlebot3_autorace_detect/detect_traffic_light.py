@@ -52,26 +52,26 @@ class DetectTrafficLight(Node):
         self.declare_parameter(
             'red.hue_l', 0, parameter_descriptor_hue)
         self.declare_parameter(
-            'red.hue_h', 179, parameter_descriptor_hue)
+            'red.hue_h', 15, parameter_descriptor_hue)
         self.declare_parameter(
-            'red.saturation_l', 0, parameter_descriptor_saturation_lightness)
+            'red.saturation_l', 50, parameter_descriptor_saturation_lightness)
         self.declare_parameter(
             'red.saturation_h', 255, parameter_descriptor_saturation_lightness)
         self.declare_parameter(
-            'red.lightness_l', 0, parameter_descriptor_saturation_lightness)
+            'red.lightness_l', 50, parameter_descriptor_saturation_lightness)
         self.declare_parameter(
             'red.lightness_h', 255, parameter_descriptor_saturation_lightness)
 
         self.declare_parameter(
-            'yellow.hue_l', 0, parameter_descriptor_hue)
+            'yellow.hue_l', 20, parameter_descriptor_hue)
         self.declare_parameter(
-            'yellow.hue_h', 179, parameter_descriptor_hue)
+            'yellow.hue_h', 35, parameter_descriptor_hue)
         self.declare_parameter(
-            'yellow.saturation_l', 0, parameter_descriptor_saturation_lightness)
+            'yellow.saturation_l', 3, parameter_descriptor_saturation_lightness)
         self.declare_parameter(
-            'yellow.saturation_h', 255, parameter_descriptor_saturation_lightness)
+            'yellow.saturation_h', 245, parameter_descriptor_saturation_lightness)
         self.declare_parameter(
-            'yellow.lightness_l', 0, parameter_descriptor_saturation_lightness)
+            'yellow.lightness_l', 39, parameter_descriptor_saturation_lightness)
         self.declare_parameter(
             'yellow.lightness_h', 255, parameter_descriptor_saturation_lightness)
 
@@ -144,7 +144,7 @@ class DetectTrafficLight(Node):
                 CompressedImage, '/detect/image_input/compressed', self.get_image, 1)
         else:
             self.sub_image_original = self.create_subscription(
-                Image, '/detect/image_input', self.get_image, 1)
+                Image, '/camera/image_rawed', self.get_image, 1)
 
         if self.pub_image_type == 'compressed':
             self.pub_image_traffic_light = self.create_publisher(
@@ -373,7 +373,9 @@ class DetectTrafficLight(Node):
         upper_green = np.array([self.hue_green_h, self.saturation_green_h, self.lightness_green_h])
 
         mask = cv2.inRange(hsv, lower_green, upper_green)
-
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3,3), np.uint8))
+ 
+        
         if self.is_calibration_mode:
             if self.pub_image_type == 'compressed':
                 self.pub_image_green_light.publish(
@@ -391,21 +393,21 @@ class DetectTrafficLight(Node):
         params.minThreshold = 0
         params.maxThreshold = 255
         params.filterByArea = True
-        params.minArea = 100
-        params.maxArea = 600
+        params.minArea = 10
+        params.maxArea = 100
         params.filterByCircularity = True
-        params.minCircularity = 0.5
+        params.minCircularity = 0.2
         params.filterByConvexity = True
-        params.minConvexity = 0.7
+        params.minConvexity = 0.5
 
         detector = cv2.SimpleBlobDetector_create(params)
         keypts = detector.detect(mask)
 
         height, width = mask.shape[:2]
-        roi_x_start = width // 2
+        roi_x_start = 0
         roi_x_end = width
-        roi_y_start = height // 3
-        roi_y_end = 2 * height // 3
+        roi_y_start = 0
+        roi_y_end = height
 
         for i in range(len(keypts)):
             self.point_x = int(keypts[i].pt[0])
